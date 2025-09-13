@@ -1,0 +1,79 @@
+{
+  "intents": [
+    {
+      "tag": "chao_hoi",
+      "patterns": [
+        "Xin chào",
+        "Chào bạn",
+        "Hi",
+        "Chào buổi sáng",
+        "Chào buổi tối"
+      ],
+      "responses": [
+        "Xin chào! Tôi có thể giúp gì cho bạn?",
+        "Chào bạn, bạn cần hỗ trợ gì?"
+      ]
+    },
+    {
+      "tag": "gio_mo_cua",
+      "patterns": [
+        "Thư viện mở cửa lúc mấy giờ?",
+        "Thư viện hoạt động vào lúc nào?",
+        "Giờ mở cửa thư viện?",
+        "Mấy giờ thì thư viện mở?"
+      ],
+      "responses": [
+        "Thư viện mở cửa từ 7h30 sáng đến 5h chiều từ thứ 2 đến thứ 6.",
+        "Giờ mở cửa: 7h30 - 17h00, từ thứ 2 đến thứ 6."
+      ]
+    },
+    {
+      "tag": "muon_sach",
+      "patterns": [
+        "Làm sao để mượn sách?",
+        "Tôi muốn mượn sách thì làm thế nào?",
+        "Quy trình mượn sách là gì?"
+      ],
+      "responses": [
+        "Bạn cần mang thẻ sinh viên và đến quầy thủ thư để mượn sách.",
+        "Vui lòng trình thẻ sinh viên tại quầy để được mượn sách."
+      ]
+    },
+    {
+      "tag": "tra_sach",
+      "patterns": [
+        "Khi nào phải trả sách?",
+        "Thời hạn mượn sách là bao lâu?",
+        "Trả sách như thế nào?"
+      ],
+      "responses": [
+        "Thời hạn mượn sách là 14 ngày kể từ ngày mượn.",
+        "Bạn có thể trả sách trực tiếp tại quầy thủ thư."
+      ]
+    },
+    {
+      "tag": "delivery",
+      "patterns": [
+        "Giao hàng mất bao lâu?",
+        "Bao lâu thì tôi nhận được hàng?",
+        "Thời gian ship là mấy ngày?"
+      ],
+      "responses": [
+        "Thời gian giao hàng thường từ 2-4 ngày.",
+        "Bạn sẽ nhận được hàng trong vòng 2-4 ngày."
+      ]
+    },
+    {
+      "tag": "funny",
+      "patterns": [
+        "Kể chuyện cười đi",
+        "Cho tôi một câu đùa",
+        "Nói gì vui vui đi"
+      ],
+      "responses": [
+        "Tại sao máy tính không biết bơi? Vì nó sợ ‘crash’ 😆",
+        "Con ong mà đi học thì gọi là ong gì? — Ong đi học!"
+      ]
+    }
+  ]
+}
