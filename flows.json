@@ -1,0 +1,34 @@
+{
+  "muon_sach": {
+    "start": "CHO_THE_SV",
+    "states": {
+      "CHO_THE_SV": {
+        "yes": {
+          "reply": "Tuyệt, bạn chỉ cần đến quầy thủ thư và trình thẻ để mượn sách nhé.",
+          "next": "END"
+        },
+        "no": {
+          "reply": "Bạn cần có thẻ sinh viên để mượn sách. Vui lòng làm thẻ tại quầy thủ thư.",
+          "next": "END"
+        },
+        "fallback": {
+          "reply": "Mình chưa rõ, bạn xác nhận giúp: bạn có mang thẻ sinh viên không? (có/không)"
+        }
+      }
+    }
+  },
+  "tra_sach": {
+    "start": "CHO_NGAY_MUON",
+    "states": {
+      "CHO_NGAY_MUON": {
+        "expect_date": {
+          "reply_template": "Thời hạn mượn là 14 ngày từ {borrow_date}. Hạn trả dự kiến: {due_date}.",
+          "next": "END"
+        },
+        "fallback": {
+          "reply": "Bạn vui lòng nhập ngày theo dạng dd/mm/yyyy (vd: 12/09/2025) nhé."
+        }
+      }
+    }
+  }
+}
