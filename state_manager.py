@@ -1,129 +1,124 @@
-# state_manager.py  (phiên bản data-driven: đọc flows.json)
-import json, re
+# state_manager.py  (FSM phiên bản khớp flows.json của bạn)
+import re
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
-# ---------- Extractors ----------
-YES = {"có","ok","oke","okay","đồng ý","vâng","phải","ừ","ừm"}
-NO  = {"không","khong","ko","thôi","không cần","không có","no"}
+YES = {"có","co","ok","oke","okay","đồng ý","dong y","vâng","vang","phải","phai","ừ","ừm","um","uh","dạ","da","rồi","roi"}
+NO  = {"không","khong","ko","thôi","thoi","không cần","khong can","không có","khong co","no","chưa","chua","không đâu","khong dau"}
 
 def extract_yesno(text: str) -> Optional[bool]:
-    t = text.lower()
+    t = text.lower().strip()
     if any(w in t for w in YES): return True
     if any(w in t for w in NO):  return False
+    # mau "khong + dong tu"
+    if re.search(r"\bkh(o|ô)ng\s+\w+", t): return False
     return None
 
-DATE_PATTERNS = [r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b"]
-def extract_date(text: str) -> Optional[datetime]:
+def parse_vn_date_ddmmyyyy(text: str) -> Optional[datetime]:
     t = text.strip()
-    m = re.search(DATE_PATTERNS[0], t)
+    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", t)
     if m:
         d, mth, y = map(int, m.groups())
-        try: return datetime(y, mth, d)
-        except ValueError: pass
-    m = re.search(DATE_PATTERNS[1], t)
-    if m:
-        y, mth, d = map(int, m.groups())
-        try: return datetime(y, mth, d)
-        except ValueError: pass
+        try:
+            return datetime(y, mth, d)
+        except ValueError:
+            return None
     return None
 
-EXTRACTORS = {
-    "yesno": extract_yesno,
-    "date":  extract_date,
-    # có thể bổ sung: "color", "number", "book_title"...
-}
-
-# ---------- Computations ----------
-def compute_borrow_due_date(ctx: Dict[str, Any]) -> str:
-    d: datetime = ctx["borrow_date"]
-    due = d + timedelta(days=14)
-    return (f"Thời hạn mượn là 14 ngày từ ngày {d.strftime('%d/%m/%Y')}."
-            f" Hạn trả dự kiến: {due.strftime('%d/%m/%Y')}.")
-
-COMPUTE_FNS = {
-    "borrow_due_date": compute_borrow_due_date,
-}
-
-# ---------- State Manager ----------
 class StateManager:
     def __init__(self, flows_path: str = "flows.json"):
+        import json
         with open(flows_path, "r", encoding="utf-8") as f:
-            self.flows = json.load(f)
-        self.reset()
-
-    def reset(self):
+            self.flows: Dict[str, Any] = json.load(f)
         self.active_flow: Optional[str] = None
-        self.step_idx: int = 0
+        self.current_state: Optional[str] = None
         self.ctx: Dict[str, Any] = {}
-        self.pending_followup: Optional[str] = None
 
-    def start_flow(self, intent: str) -> Optional[str]:
-        spec = self.flows.get(intent)
-        if not spec: return None
+    def handle(self, predicted_intent: str, user_text: str, user_id: str = "default") -> Optional[str]:
+        if self.active_flow:
+            return self._step(user_text)
 
-        steps = spec.get("steps")
-        if steps:
-            self.active_flow = intent
-            self.step_idx = 0
-            self.pending_followup = None
-            return steps[0]["ask"]
-
-        # followup-only
-        if spec.get("followup"):
-            self.pending_followup = intent
+        if predicted_intent in self.flows:
+            self._enter_flow(predicted_intent)
+            sdef = self._state_def()
+            if sdef:
+                fb = sdef.get("fallback", {})
+                if "reply" in fb:
+                    return fb["reply"]
             return None
+
         return None
 
-    def handle(self, predicted_intent: str, user_text: str) -> Optional[str]:
-        # 1) nếu đang ở flow nhiều bước -> điền slot
+    def bootstrap_by_text(self, user_text: str, user_id: str = "default") -> Optional[str]:
         if self.active_flow:
-            spec  = self.flows[self.active_flow]
-            steps = spec["steps"]
-            step  = steps[self.step_idx]
+            return self._step(user_text)
+        return None
 
-            slot  = step["slot"]
-            typ   = step["type"]
-            ext   = EXTRACTORS.get(typ)
+    def _enter_flow(self, flow_name: str):
+        self.active_flow = flow_name
+        self.current_state = self.flows[flow_name]["start"]
+        self.ctx = {}
 
-            value = ext(user_text) if ext else None
-            if value is None:
-                return step["ask"]  # nhắc lại
+    def _exit_flow(self):
+        self.active_flow = None
+        self.current_state = None
+        self.ctx = {}
 
-            # lưu slot
-            self.ctx[slot] = value
+    def _flow_def(self) -> Optional[Dict[str, Any]]:
+        if not self.active_flow:
+            return None
+        return self.flows.get(self.active_flow)
 
-            # on_filled
-            filled_reply = None
-            of = step.get("on_filled") or {}
-            if "reply_true" in of or "reply_false" in of:
-                # yes/no
-                if isinstance(value, bool):
-                    filled_reply = of["reply_true"] if value else of["reply_false"]
-            if "compute" in of:
-                fn = COMPUTE_FNS.get(of["compute"])
-                if fn: filled_reply = fn(self.ctx)
+    def _state_def(self) -> Optional[Dict[str, Any]]:
+        f = self._flow_def()
+        if not f: return None
+        return f["states"].get(self.current_state)
 
-            # sang bước kế
-            self.step_idx += 1
-            if self.step_idx >= len(steps):
-                self.reset()
-            return filled_reply or "Đã ghi nhận."
+    def _goto(self, next_state: Optional[str]):
+        if next_state == "END" or next_state is None:
+            self._exit_flow()
+        else:
+            self.current_state = next_state
 
-        # 2) nếu không ở flow: thử khởi động flow theo intent hiện tại
-        boot = self.start_flow(predicted_intent)
-        if boot is not None:
-            return boot
+    def _step(self, user_text: str) -> Optional[str]:
+        sdef = self._state_def()
+        if not sdef:
+            self._exit_flow()
+            return None
 
-        # 3) theo dõi câu hỏi đuôi (followup) cho intent vừa trả lời
-        if self.pending_followup:
-            fw = self.flows[self.pending_followup].get("followup", {})
-            kws: List[str] = fw.get("keywords", [])
-            if any(k in user_text.lower() for k in kws):
-                ans = fw.get("reply")
-                self.pending_followup = None
-                return ans
-            self.pending_followup = None
+        # YES/NO branch
+        if "yes" in sdef or "no" in sdef:
+            yn = extract_yesno(user_text)
+            if yn is True and "yes" in sdef:
+                reply = sdef["yes"].get("reply")
+                self._goto(sdef["yes"].get("next"))
+                return reply
+            if yn is False and "no" in sdef:
+                reply = sdef["no"].get("reply")
+                self._goto(sdef["no"].get("next"))
+                return reply
+            fb = sdef.get("fallback", {})
+            return fb.get("reply", None)
 
-        # 4) nhường cho responses mặc định theo intent
+        # Date branch
+        if "expect_date" in sdef:
+            d = parse_vn_date_ddmmyyyy(user_text)
+            if d:
+                self.ctx["borrow_date"] = d
+                due = d + timedelta(days=14)
+                rep_tmpl = sdef["expect_date"].get("reply_template", "")
+                reply = rep_tmpl.format(
+                    borrow_date=d.strftime("%d/%m/%Y"),
+                    due_date=due.strftime("%d/%m/%Y")
+                )
+                self._goto(sdef["expect_date"].get("next"))
+                return reply
+            fb = sdef.get("fallback", {})
+            return fb.get("reply", None)
+
+        fb = sdef.get("fallback", {})
+        if "reply" in fb:
+            return fb["reply"]
+
+        self._exit_flow()
         return None
