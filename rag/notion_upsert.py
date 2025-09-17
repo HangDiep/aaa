@@ -47,14 +47,19 @@ def upsert_faq(question: str, answer: str,
         page = client.pages.create(parent={"database_id": DBID}, properties=props)
         return ("created", page["id"])
 
+import json
+
 if __name__ == "__main__":
-    # Ví dụ dùng:
-    status, pid = upsert_faq(
-        question="Thư viện mở cửa mấy giờ?",
-        answer="Thứ 2–Thứ 6: 7:30–17:00. Thứ 7–CN: nghỉ.",
-        category="Giờ mở cửa",
-        language="Tiếng Việt",
-        approved=True
-    )
-    print("✅", status, pid)
-    
+    with open("data/faqs.json", "r", encoding="utf-8") as f:
+        faqs = json.load(f)
+
+    for faq in faqs:
+        status, pid = upsert_faq(
+            question=faq["question"],
+            answer=faq["answer"],
+            category=faq.get("category"),
+            language=faq.get("language", "Tiếng Việt"),
+            approved=faq.get("approved", True)
+        )
+        print("✅", status, pid, "|", faq["question"])
+    print("✅ Done.")
