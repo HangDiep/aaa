@@ -2,7 +2,8 @@ import sqlite3, os
 from notion_client import Client
 from dotenv import load_dotenv
 
-load_dotenv("rag/.env")
+load_dotenv("D:/HTML/chat2/rag/.env")
+
 client = Client(auth=os.getenv("NOTION_TOKEN"))
 DB_ID = os.getenv("NOTION_DATABASE_ID")
 
@@ -52,9 +53,17 @@ def sync_to_notion():
             cur.execute("UPDATE faq SET external_id=?, updated_at=? WHERE id=?",
                         (page["id"], page["last_edited_time"], rid))
         else:
-            # TODO: so sánh với last_edited_time trong Notion
-            # nếu DB mới hơn thì update lên Notion
-            pass
+            notion_page = client.pages.retrieve(pid)
+            notion_last = notion_page["last_edited_time"]
+            if upd > notion_last:   # so sánh timestamp
+                client.pages.update(
+                    page_id=pid,
+                    properties={
+                        "Question": {"rich_text": [{"text": {"content": q}}]},
+                        "Answer":   {"rich_text": [{"text": {"content": a}}]}
+                    }
+                )
+                cur.execute("UPDATE faq SET updated_at=? WHERE id=?", (notion_last, rid))
     conn.commit()
 
 sync_from_notion()
