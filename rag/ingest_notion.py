@@ -10,8 +10,8 @@ NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID  = os.getenv("NOTION_DATABASE_ID")
 OUT_PATH     = os.getenv("NOTION_DUMP", "./data/notion_raw.jsonl")
 
-if not NOTION_TOKEN or not NOTION_TOKEN.startswith("secret_"):
-    raise SystemExit("❌ NOTION_TOKEN thiếu hoặc không hợp lệ. Kiểm tra rag/.env (không để dấu ngoặc).")
+if not NOTION_TOKEN or not (NOTION_TOKEN.startswith("secret_") or NOTION_TOKEN.startswith("ntn_")):
+    raise SystemExit("❌ NOTION_TOKEN không hợp lệ (không bắt đầu bằng secret_ hoặc ntn_).")
 
 if not DATABASE_ID or len(DATABASE_ID.replace("-", "")) != 32:
     raise SystemExit("❌ NOTION_DATABASE_ID thiếu hoặc sai. Lấy 32 ký tự trước '?v=' trong Copy link DB.")
