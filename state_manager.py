@@ -3,8 +3,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-YES = {"có","co","ok","oke","okay","đồng ý","dong y","vâng","vang","phải","phai","ừ","ừm","um","uh","dạ","da","rồi","roi"}
-NO  = {"không","khong","ko","thôi","thoi","không cần","khong can","không có","khong co","no","chưa","chua","không đâu","khong dau"}
+YES = {"có","co","ok","oke","okay","yes","y","yeah","đồng ý","dong y","vâng","vang","phải","phai","ừ","ừm","um","uh","dạ","da","rồi","roi","được","duoc","dc"}
+NO  = {"không","khong","ko","thôi","thoi","không cần","khong can","không có","khong co","no","chưa","chua","không đâu","khong dau","không được","khong duoc","k"}
 
 def extract_yesno(text: str) -> Optional[bool]:
     t = text.lower().strip()
@@ -97,10 +97,9 @@ class StateManager:
                 reply = sdef["no"].get("reply")
                 self._goto(sdef["no"].get("next"))
                 return reply
-            fb = sdef.get("fallback", {})
-            return fb.get("reply", None)
-
-        # Date branch
+            # Không hiểu yes/no -> không trả fallback ở đây; nhường cho intents.json trả lời
+            return None
+# Date branch
         if "expect_date" in sdef:
             d = parse_vn_date_ddmmyyyy(user_text)
             if d:
@@ -113,12 +112,14 @@ class StateManager:
                 )
                 self._goto(sdef["expect_date"].get("next"))
                 return reply
-            fb = sdef.get("fallback", {})
-            return fb.get("reply", None)
-
+            # Không parse được ngày -> nhường cho intents.json; giữ nguyên state
+            return None
         fb = sdef.get("fallback", {})
         if "reply" in fb:
             return fb["reply"]
 
         self._exit_flow()
         return None
+    def exit_flow(self):
+        self._exit_flow()
+        self._fallback_count = 0
