@@ -26,13 +26,18 @@ def parse_vn_date_ddmmyyyy(text: str) -> Optional[datetime]:
     return None
 
 class StateManager:
-    def __init__(self, flows_path: str = "flows.json"):
-        import json
-        with open(flows_path, "r", encoding="utf-8") as f:
-            self.flows: Dict[str, Any] = json.load(f)
-        self.active_flow: Optional[str] = None
-        self.current_state: Optional[str] = None
-        self.ctx: Dict[str, Any] = {}
+    class StateManager:
+        def __init__(self, flows_path=None, flows_dict=None):
+            if flows_dict is not None:
+                self.flows = flows_dict
+            elif flows_path:
+                with open(flows_path, "r", encoding="utf-8") as f:
+                    self.flows = json.load(f)
+            else:
+                self.flows = {}
+            self.active_flow = None
+            self.current_state = None
+
 
     def handle(self, predicted_intent: str, user_text: str, user_id: str = "default") -> Optional[str]:
         if self.active_flow:
