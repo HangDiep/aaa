@@ -5,11 +5,18 @@ import torch
 from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 import numpy as np
-import sqlite3, datetime
+import sqlite3, datetime,os
 from state_manager import StateManager
+
+
+
 
 DB_PATH = "chat.db"
 CONF_THRESHOLD = 0.60  # hạ tạm để dễ kích hoạt intent khi data còn mỏng
+FAQ_DB_PATH = "D:/HTML/chat2/rag/faqs.db"   
+LOG_ALL_QUESTIONS = True  
+
+
 
 # --- Kết nối & chuẩn bị DB ---
 conn = sqlite3.connect(DB_PATH)
@@ -26,15 +33,45 @@ CREATE TABLE IF NOT EXISTS conversations (
 """)
 conn.commit()
 
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Đọc intents (ăn BOM nếu có)
 with open('intents.json', 'r', encoding='utf-8-sig') as f:
     intents = json.load(f)
 
+
 # Load model đã train
 FILE = "data.pth"
 data = torch.load(FILE, map_location=device)
+def ensure_questions_log():
+    os.makedirs(os.path.dirname(FAQ_DB_PATH), exist_ok=True)
+    conn2 = sqlite3.connect(FAQ_DB_PATH)
+    cur2 = conn2.cursor()
+    cur2.execute("""
+    CREATE TABLE IF NOT EXISTS questions_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question   TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        synced     INTEGER DEFAULT 0
+    )
+    """)
+    conn2.commit(); conn2.close()
+
+def log_question_for_notation(question: str):
+    """Ghi 1 câu hỏi vào 'inbox' để push lên Notion sau này (push_logs.py)."""
+    if not question or not question.strip():
+        return
+    ensure_questions_log()
+    conn2 = sqlite3.connect(FAQ_DB_PATH)
+    cur2 = conn2.cursor()
+    cur2.execute("INSERT INTO questions_log (question, synced) VALUES (?, 0)", (question.strip(),))
+    conn2.commit(); conn2.close()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+with open('intents.json', 'r', encoding='utf-8-sig') as f:
+    intents = json.load(f)
+
 
 input_size  = data["input_size"]
 hidden_size = data["hidden_size"]
@@ -52,6 +89,8 @@ try:
     state_mgr = StateManager("flows.json")
 except Exception:
     state_mgr = StateManager()
+
+
 
 INTERRUPT_INTENTS = set()  # không ngắt flow bằng intent; chỉ hủy bằng CANCEL_WORDS
 CANCEL_WORDS = {"hủy","huỷ","huy","cancel","thoát","dừng","đổi chủ đề","doi chu de"}
@@ -147,6 +186,20 @@ try:
             (sentence, reply, tag_to_log, confidence, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         conn.commit()
+    # GHI "INBOX CÂU HỎI" ĐỂ ĐẨY LÊN NOTION
+        should_push_to_notion = (
+            LOG_ALL_QUESTIONS or
+            reply.strip().startswith("Xin lỗi, mình chưa hiểu") or
+            confidence < CONF_THRESHOLD or
+            tag_to_log is None
+        )
+        if should_push_to_notion:
+            try:
+                # ✅ gọi HÀM, không phải gán biến
+                log_question_for_notation(f"User: {sentence}\nBot: {reply}")
+
+            except Exception:
+                pass
 
 finally:
     conn.close()
