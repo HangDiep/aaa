@@ -51,7 +51,7 @@ def fetch_rows(limit=None, force_all=False):
     """
     Lấy các dòng từ conversations.
     - Nếu force_all=True: lấy TẤT CẢ.
-    - Ngược lại: chỉ lấy những dòng CHƯA sync (không có bản ghi trong conversations_sync, hoặc synced=0).
+    - Ngược lại: chỉ lấy những dòng CHƯA sync (không có bản hldf ghi trong conversations_sync, hoặc synced=0).
     """
     con = sqlite3.connect(CHAT_DB)
     cur = con.cursor()
