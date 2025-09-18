@@ -1,7 +1,5 @@
 .vs/
-<<<<<<< HEAD
-.vs/
-=======
->>>>>>> Hân
-.vs/
 *.sqlite
+__pycache__/
+*.pyc
+*.pyo
