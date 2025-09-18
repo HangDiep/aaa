@@ -3,3 +3,13 @@
 __pycache__/
 *.pyc
 *.pyo
+.vs/
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.vs/
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
