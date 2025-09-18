@@ -29,7 +29,7 @@ c.execute('''
     )
 ''')
 
-# Chèn dữ liệu majors (dựa trên dữ liệu bạn cung cấp)
+# Chèn dữ liệu majors
 majors = [
     (1, 'Công nghệ thông tin', None),
     (2, 'Kinh tế', None),
@@ -42,10 +42,9 @@ majors = [
     (9, 'Sư phạm Vật lý', None),
     (10, 'Sư phạm Hóa học', None)
 ]
-for major in majors:
-    c.execute("INSERT OR IGNORE INTO majors (id, name, description) VALUES (?, ?, ?)", major)
+c.executemany("INSERT OR IGNORE INTO majors (id, name, description) VALUES (?, ?, ?)", majors)
 
-# Chèn dữ liệu books (dựa trên dữ liệu bạn cung cấp, tôi liệt kê đầy đủ)
+# Chèn dữ liệu books (sử dụng executemany để chèn hàng loạt)
 books = [
     ('Cấu trúc dữ liệu & Giải thuật', 'Nguyễn Văn A', 2020, 12, 1, 'Còn hàng', 'https://www.notion.so/26f57231d19d80739d01ec90bd35c24b', 'Yes'),
     ('Trí tuệ nhân tạo', 'Trần Văn B', 2021, 8, 1, 'Còn hàng', 'https://www.notion.so/26f57231d19d80739d01ec90bd35c24b', 'Yes'),
@@ -98,8 +97,7 @@ books = [
     ('Giáo dục thể chất ở tiểu học', 'Nguyễn Văn Tuấn', 2020, 13, 5, 'Còn hàng', 'https://www.notion.so/26f57231d19d8008b35fd01c6693924a', 'Yes'),
     ('Phương pháp dạy học Âm nhạc ở tiểu học', 'Hoàng Thị Nga', 2021, 17, 5, 'Còn hàng', 'https://www.notion.so/26f57231d19d8008b35fd01c6693924a', 'Yes')
 ]
-for book in books:
-    c.execute("INSERT INTO books (name, author, year, quantity, major_id, status, link, available) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", book)
+c.executemany("INSERT INTO books (name, author, year, quantity, major_id, status, link, available) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", books)
 
 # Commit và đóng kết nối
 conn.commit()
