@@ -1,25 +1,27 @@
-# chat_fixed.py (revised)
 import random
 import json
 import torch
 from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 import numpy as np
-import sqlite3, datetime,os
+import sqlite3, datetime, os
 from state_manager import StateManager
 
+# --------------------
+# CẤU HÌNH LƯU LOG
+# --------------------
+CHAT_DB_PATH = "chat.db"
 
+# Inbox câu hỏi để đẩy lên Notion
+FAQ_DB_PATH = "D:/HTML/chat2/rag/faqs.db"   # giữ nguyên như push_logs.py
 
+CONF_THRESHOLD = 0.60  # ngưỡng tự tin intent
+LOG_ALL_QUESTIONS = True  # True = log mọi câu; False = chỉ log khi bot chưa hiểu / tự tin thấp
 
-DB_PATH = "chat.db"
-CONF_THRESHOLD = 0.60  # hạ tạm để dễ kích hoạt intent khi data còn mỏng
-FAQ_DB_PATH = "D:/HTML/chat2/rag/faqs.db"   
-LOG_ALL_QUESTIONS = True  
-
-
-
-# --- Kết nối & chuẩn bị DB ---
-conn = sqlite3.connect(DB_PATH)
+# --------------------
+# DB: conversations (chat.db)
+# --------------------
+conn = sqlite3.connect(CHAT_DB_PATH)
 cur = conn.cursor()
 cur.execute("""
 CREATE TABLE IF NOT EXISTS conversations (
@@ -33,17 +35,9 @@ CREATE TABLE IF NOT EXISTS conversations (
 """)
 conn.commit()
 
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# Đọc intents (ăn BOM nếu có)
-with open('intents.json', 'r', encoding='utf-8-sig') as f:
-    intents = json.load(f)
-
-
-# Load model đã train
-FILE = "data.pth"
-data = torch.load(FILE, map_location=device)
+# --------------------
+# DB: questions_log (faqs.db) - tạo nếu chưa có
+# --------------------
 def ensure_questions_log():
     os.makedirs(os.path.dirname(FAQ_DB_PATH), exist_ok=True)
     conn2 = sqlite3.connect(FAQ_DB_PATH)
@@ -67,11 +61,17 @@ def log_question_for_notation(question: str):
     cur2 = conn2.cursor()
     cur2.execute("INSERT INTO questions_log (question, synced) VALUES (?, 0)", (question.strip(),))
     conn2.commit(); conn2.close()
+
+# --------------------
+# MODEL
+# --------------------
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 with open('intents.json', 'r', encoding='utf-8-sig') as f:
     intents = json.load(f)
 
+FILE = "data.pth"
+data = torch.load(FILE, map_location=device)
 
 input_size  = data["input_size"]
 hidden_size = data["hidden_size"]
@@ -81,18 +81,18 @@ tags        = data["tags"]
 model_state = data["model_state"]
 
 model = NeuralNet(input_size, hidden_size, output_size).to(device)
-model.load_state_dict(model_state)   # nạp trọng số
+model.load_state_dict(model_state)
 model.eval()
 
-# State manager: cố gắng dùng flows.json nếu có
+# --------------------
+# STATE / FLOW
+# --------------------
 try:
     state_mgr = StateManager("flows.json")
 except Exception:
     state_mgr = StateManager()
 
-
-
-INTERRUPT_INTENTS = set()  # không ngắt flow bằng intent; chỉ hủy bằng CANCEL_WORDS
+INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy","huỷ","huy","cancel","thoát","dừng","đổi chủ đề","doi chu de"}
 
 print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
@@ -103,7 +103,7 @@ try:
         if sentence.lower() == "quit":
             break
 
-        # Lệnh hủy luồng thủ công
+        # Hủy flow thủ công
         if sentence.lower() in CANCEL_WORDS:
             try:
                 state_mgr.exit_flow()
@@ -118,36 +118,32 @@ try:
             conn.commit()
             continue
 
-        # Khởi tạo
         reply = None
         tag_to_log = None
         confidence = 0.0
 
         # --- NLU: dự đoán intent ---
         tokens = tokenize(sentence)
-        X = bag_of_words(tokens, all_words)             # np.float32
-        X = torch.from_numpy(X).unsqueeze(0).to(device) # (1, input_size)
+        X = bag_of_words(tokens, all_words)
+        X = torch.from_numpy(X).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            output = model(X)                           # (1, num_classes)
+            output = model(X)
             probs = torch.softmax(output, dim=1)
             prob, pred_idx = torch.max(probs, dim=1)
             tag = tags[pred_idx.item()]
             confidence = float(prob.item())
 
         # --- ƯU TIÊN NGỮ CẢNH ---
-        # 0) Nếu đang ở trong flow: state manager xử lý TRƯỚC
         if getattr(state_mgr, "active_flow", None):
-            # Không tự ý ngắt flow bằng intent; luôn cố gắng xử lý tiếp ngữ cảnh
             try:
                 ctx_reply = state_mgr.handle(tag, sentence)
             except Exception:
-                    ctx_reply = None
+                ctx_reply = None
             if ctx_reply:
-                    reply = ctx_reply
-                    tag_to_log = tag
+                reply = ctx_reply
+                tag_to_log = tag
 
-        # 1) Nếu chưa có reply & model tự tin: thử KHỞI ĐỘNG flow theo intent hiện tại
         if reply is None and confidence > CONF_THRESHOLD:
             try:
                 ctx_reply = state_mgr.handle(tag, sentence)
@@ -157,7 +153,6 @@ try:
                 reply = ctx_reply
                 tag_to_log = tag
 
-        # 2) Nếu vẫn chưa có reply: thử bootstrap theo từ khóa trong flows.json
         if reply is None:
             try:
                 boot = state_mgr.bootstrap_by_text(sentence)
@@ -165,28 +160,26 @@ try:
                 boot = None
             if boot:
                 reply = boot
-                # có thể chưa log intent vì chưa chắc chắn
 
-        # 3) Nếu vẫn chưa có -> dùng responses theo intent (chỉ khi đủ tự tin)
         if reply is None and confidence > CONF_THRESHOLD:
             resp_list = next((it["responses"] for it in intents["intents"] if it["tag"] == tag), None)
             if resp_list:
                 reply = random.choice(resp_list)
                 tag_to_log = tag
 
-        # 4) Fallback cuối
         if reply is None:
             reply = "Xin lỗi, mình chưa hiểu ý bạn."
 
         print("Bot:", reply)
 
-        # --- Lưu log ---
+        # LƯU LOG HỘI THOẠI (chat.db)
         cur.execute(
             "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
             (sentence, reply, tag_to_log, confidence, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         conn.commit()
-    # GHI "INBOX CÂU HỎI" ĐỂ ĐẨY LÊN NOTION
+
+        # GHI "INBOX CÂU HỎI" ĐỂ ĐẨY LÊN NOTION
         should_push_to_notion = (
             LOG_ALL_QUESTIONS or
             reply.strip().startswith("Xin lỗi, mình chưa hiểu") or
