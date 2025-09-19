@@ -6,8 +6,12 @@ from nltk_utils import tokenize, bag_of_words
 import numpy as np
 import sqlite3, datetime, os
 from state_manager import StateManager
+import requests  # NEW
+# --------------------# ---- OLLAMA AUGMENT (append thêm câu trả lời) ----
+USE_OLLAMA_AUGMENT = True           # bật/tắt tính năng bổ sung
+OLLAMA_MODEL = "qwen2:1.5b"         # hoặc "llama3.2:3b"
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 
-# --------------------
 # CẤU HÌNH LƯU LOG
 # --------------------
 CHAT_DB_PATH = "chat.db"
@@ -35,6 +39,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 """)
 conn.commit()
 
+# khởi tạo giúp chat bot có cuộc trò chuyện
+
 # --------------------
 # DB: questions_log (faqs.db) - tạo nếu chưa có
 # --------------------
@@ -51,7 +57,7 @@ def ensure_questions_log():
     )
     """)
     conn2.commit(); conn2.close()
-
+# Nói ngắn: đây là chỗ lưu “hộp thư đến” cho các câu hỏi mà chatbot chưa đồng bộ lên Notion.
 def log_question_for_notation(question: str):
     """Ghi 1 câu hỏi vào 'inbox' để push lên Notion sau này (push_logs.py)."""
     if not question or not question.strip():
@@ -61,7 +67,7 @@ def log_question_for_notation(question: str):
     cur2 = conn2.cursor()
     cur2.execute("INSERT INTO questions_log (question, synced) VALUES (?, 0)", (question.strip(),))
     conn2.commit(); conn2.close()
-
+# 📌 Tóm lại: đây là hàm đưa câu hỏi vào hàng chờ (inbox). Sau này script push_logs.py sẽ đọc các bản ghi synced = 0 trong bảng này và đẩy lên Notion.
 # --------------------
 # MODEL
 # --------------------
@@ -87,6 +93,31 @@ model.eval()
 # --------------------
 # STATE / FLOW
 # --------------------
+
+def ollama_generate_append(base_reply: str, user_message: str) -> str:
+    """
+    Gọi Ollama để sinh thêm câu trả lời dựa trên base_reply và user_message.
+    Trả về chuỗi bổ sung hoặc "" nếu lỗi/không có gì.
+    """
+    try:
+        payload = {
+            "model": OLLAMA_MODEL,
+            # chỉ truyền trực tiếp 2 biến mà không kèm prompt hướng dẫn dài
+            "prompt": f"Người dùng: {user_message}\nCâu trả lời hiện có: {base_reply}\n\nViết thêm:",
+            "stream": False,
+            "options": {
+                "num_predict": 220
+            }
+        }
+        r = requests.post(OLLAMA_URL, json=payload, timeout=25)
+        if r.ok:
+            txt = (r.json().get("response") or "").strip()
+            if txt and txt.lower() not in (base_reply.lower()):
+                return txt
+    except Exception:
+        pass
+    return ""
+
 try:
     state_mgr = StateManager("flows.json")
 except Exception:
@@ -94,7 +125,7 @@ except Exception:
 
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy","huỷ","huy","cancel","thoát","dừng","đổi chủ đề","doi chu de"}
-
+# ngắt hội tho
 print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
 
 try:
