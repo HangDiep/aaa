@@ -10,7 +10,9 @@ from notion_client import Client
 # CẤU HÌNH ĐƯỜNG DẪN
 # =========================
 ENV_PATH  = r"D:/HTML/chat2/rag/.env"     # chứa NOTION_TOKEN, NOTION_DATABASE_ID
-CHAT_DB   = r"D:/HTML/chat2/chat.db"      # nơi có bảng conversations
+# CHAT_DB   = r"D:/HTML/chat2/chat.db"      # nơi có bảng conversations
+# D:/HTML/chat2/rag/faqs.db
+CHAT_DB   = r"D:/HTML/chat2/rag/faqs.db" 
 # Lưu ý: KHÔNG dùng faqs.db nữa trong script này
 
 # =========================

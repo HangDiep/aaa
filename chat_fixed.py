@@ -13,93 +13,71 @@ import requests
 from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 from state_manager import StateManager
+import requests  # NEW
+# --------------------# ---- OLLAMA AUGMENT (append thêm câu trả lời) ----
+USE_OLLAMA_AUGMENT = True           # bật/tắt tính năng bổ sung
+OLLAMA_MODEL = "qwen2:1.5b"         # hoặc "llama3.2:3b"
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 
+# --------------------
+# CẤU HÌNH LƯU LOG
+# --------------------
+CHAT_DB_PATH = "chat.db"
 
-# =========================
-# Config
-# =========================
-DB_PATH = "chat.db"
-# 👉 Sửa đường dẫn này theo máy của bạn nếu cần
-FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
-CONF_THRESHOLD = 0.60  # tạm hạ để dễ kích hoạt intent khi data còn mỏng
+# Inbox câu hỏi để đẩy lên Notion
+FAQ_DB_PATH = "D:/HTML/chat2/rag/faqs.db"   # giữ nguyên như push_logs.py
+
+CONF_THRESHOLD = 0.60  # ngưỡng tự tin intent
 LOG_ALL_QUESTIONS = True  # True = log mọi câu; False = chỉ log khi bot chưa hiểu / tự tin thấp
 
-# API endpoints (FastAPI backend)
-FAQ_API_URL = "http://localhost:8000/search"
-INVENTORY_API_URL = "http://localhost:8000/inventory"
+# --------------------
+# DB: conversations (chat.db)
+# --------------------
+conn = sqlite3.connect(CHAT_DB_PATH)
+cur = conn.cursor()
+cur.execute("""
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_message TEXT,
+    bot_reply   TEXT,
+    intent_tag  TEXT,
+    confidence  REAL,
+    time        TEXT
+);
+""")
+conn.commit()
 
-# Flow control
-INTERRUPT_INTENTS = set()  # không ngắt flow bằng intent; chỉ hủy bằng CANCEL_WORDS
-CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
-
-
-# =========================
-# DB helpers
-# =========================
-def ensure_main_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_message TEXT,
-            bot_reply   TEXT,
-            intent_tag  TEXT,
-            confidence  REAL,
-            time        TEXT
-        );
-        """
-    )
-    conn.commit()
-    return conn
-
-
-def ensure_questions_log_db() -> None:
-    dir_name = os.path.dirname(FAQ_DB_PATH)
-    if dir_name and not os.path.exists(dir_name):
-        os.makedirs(dir_name, exist_ok=True)
+# --------------------
+# DB: questions_log (faqs.db) - tạo nếu chưa có
+# --------------------
+def ensure_questions_log():
+    os.makedirs(os.path.dirname(FAQ_DB_PATH), exist_ok=True)
     conn2 = sqlite3.connect(FAQ_DB_PATH)
     cur2 = conn2.cursor()
-    cur2.execute(
-        """
-        CREATE TABLE IF NOT EXISTS questions_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            question   TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            synced     INTEGER DEFAULT 0
-        )
-        """
+    cur2.execute("""
+    CREATE TABLE IF NOT EXISTS questions_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question   TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        synced     INTEGER DEFAULT 0
     )
-    conn2.commit()
-    conn2.close()
+    """)
+    conn2.commit(); conn2.close()
 
-
-def log_question_for_notion(question: str) -> None:
-    """Ghi 1 câu hỏi + trả lời vào inbox để push lên Notion (push_logs.py)."""
+def log_question_for_notation(question: str):
+    """Ghi 1 câu hỏi vào 'inbox' để push lên Notion sau này (push_logs.py)."""
     if not question or not question.strip():
         return
-    ensure_questions_log_db()
-    try:
-        conn2 = sqlite3.connect(FAQ_DB_PATH)
-        cur2 = conn2.cursor()
-        cur2.execute(
-            "INSERT INTO questions_log (question, synced) VALUES (?, 0)",
-            (question.strip(),),
-        )
-        conn2.commit()
-    finally:
-        try:
-            conn2.close()
-        except Exception:
-            pass
+    ensure_questions_log()
+    conn2 = sqlite3.connect(FAQ_DB_PATH)
+    cur2 = conn2.cursor()
+    cur2.execute("INSERT INTO questions_log (question, synced) VALUES (?, 0)", (question.strip(),))
+    conn2.commit(); conn2.close()
 
-
-# =========================
-# Model load
-# =========================
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# --------------------
+# MODEL
+# --------------------
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Đọc intents (ăn BOM nếu có)
 with open("intents.json", "r", encoding="utf-8-sig") as f:
@@ -120,63 +98,17 @@ model = NeuralNet(input_size, hidden_size, output_size).to(device)
 model.load_state_dict(model_state)
 model.eval()
 
-# State manager: cố gắng dùng flows.json nếu có
+# --------------------
+# STATE / FLOW
+# --------------------
 try:
     state_mgr = StateManager("flows.json")
 except Exception:
     state_mgr = StateManager()
 
+INTERRUPT_INTENTS = set()
+CANCEL_WORDS = {"hủy","huỷ","huy","cancel","thoát","dừng","đổi chủ đề","doi chu de"}
 
-# =========================
-# API helpers
-# =========================
-def get_faq_response(sentence: str) -> Optional[str]:
-    try:
-        resp = requests.get(FAQ_API_URL, params={"q": sentence}, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and data:
-                ans = data[0].get("answer")
-                if ans:
-                    return ans
-        return None
-    except requests.RequestException as e:
-        print(f"[FAQ] Lỗi kết nối API: {e}")
-        return None
-    except Exception as e:
-        print(f"[FAQ] Lỗi xử lý dữ liệu: {e}")
-        return None
-
-
-def get_inventory_response(sentence: str) -> Optional[str]:
-    try:
-        resp = requests.get(INVENTORY_API_URL, params={"book_name": sentence}, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and data:
-                book = data[0]
-                name = book.get("name")
-                author = book.get("author", "?")
-                year = book.get("year", "?")
-                quantity = book.get("quantity", "?")
-                status = book.get("status", "?")
-                if name:
-                    return (
-                        f"Sách '{name}' của tác giả {author}, năm xuất bản {year}, "
-                        f"số lượng: {quantity}, trạng thái: {status}"
-                    )
-        return None
-    except requests.RequestException as e:
-        print(f"[Inventory] Lỗi kết nối API: {e}")
-        return None
-    except Exception as e:
-        print(f"[Inventory] Lỗi xử lý dữ liệu: {e}")
-        return None
-
-
-# =========================
-# Runtime
-# =========================
 print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
 
 conn = ensure_main_db()
