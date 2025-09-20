@@ -14,6 +14,11 @@ from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 from state_manager import StateManager
 import requests  # NEW
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # thư mục chứa chat_fixed.py
+CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")       # luôn là file ở ngoài (gốc)
+print(f"[ChatDB] Using: {CHAT_DB_PATH}")
+
 # --------------------# ---- OLLAMA AUGMENT (append thêm câu trả lời) ----
 USE_OLLAMA_AUGMENT = True           # bật/tắt tính năng bổ sung
 OLLAMA_MODEL = "qwen2:1.5b"         # hoặc "llama3.2:3b"
@@ -113,6 +118,9 @@ print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
 
 conn = ensure_main_db()
 cur = conn.cursor()
+def _now():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 try:
     while True:
