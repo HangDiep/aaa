@@ -1,36 +1,66 @@
+# view/app.py
 from fastapi import FastAPI, Form
-from fastapi.responses import PlainTextResponse, FileResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os, sys
-# sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from chat_fixed import process_message
-
+from starlette.responses import FileResponse
+from pathlib import Path
+import sys
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import os
 app = FastAPI()
-
-# 1) Phục vụ file tĩnh ở /static (không chiếm router gốc)
-app.mount("/static", StaticFiles(directory="view", html=True), name="static")
-@app.get("/.well-known/appspecific/com.chrome.devtools.json")
-def chrome_probe():
-    return PlainTextResponse("", status_code=204)
-# 2) Trang chủ: bật thẳng Chatbot.html (đổi tên nếu bạn dùng tên khác)
-@app.get("/")
-@app.get("/")
-def home():
-    return FileResponse(os.path.join("view","Chatbot.html"),
-                        media_type="text/html; charset=utf-8")
+# Mount static folder
+app.mount("/static", StaticFiles(directory="view"), name="static")
 
 
-# 3) API nhận form POST từ Chatbot.html
+# Cho Python thấy thư mục cha: D:\HTML\1234 (nơi có chat_fixed.py)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(PROJECT_ROOT))
 
+from chat_fixed import process_message  # chat_fixed.py KHÔNG được import chính nó
 
-@app.post("/chat", response_class=PlainTextResponse)
+app = FastAPI(title="Library Chat API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+# ===== API =====
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/chat")
 def chat(message: str = Form(...)):
-    return process_message(message)
+    return {"answer": process_message(message)}  # front-end đọc data.answer
 
-# (tuỳ chọn) favicon để khỏi thấy 404 trong console
-@app.get("/favicon.ico")
-def favicon():
-    ico = os.path.join(os.getcwd(), "favicon.ico")
-    if os.path.exists(ico):
-        return FileResponse(ico, media_type="image/x-icon")
-    return PlainTextResponse("", status_code=204)
+# Stub demo (có/không tùy bạn)
+@app.get("/search")
+def search(q: str):
+    return [{"answer": "Giờ mở cửa: 7:30 - 17:00, Thứ 2–Thứ 6."}]
+
+@app.get("/inventory")
+def inventory(book_name: str):
+    return [{"name": book_name, "author": "N/A", "year": "?", "quantity": 3, "status": "available"}]
+
+# ===== STATIC =====
+STATIC_DIR = Path(__file__).resolve().parent   # chính là thư mục view
+
+# Serve các file tĩnh (nếu bạn có JS/CSS riêng). Không bắt route gốc.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# 👉 Trả trực tiếp file Chatbot.html ở route "/"
+@app.get("/", response_class=HTMLResponse)
+def home():
+    file_path = STATIC_DIR / "Chatbot.html"
+    if not file_path.exists():
+        return "<h1>❌ Không tìm thấy Chatbot.html</h1>"
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+    
+@app.get("/ping")
+def ping():
+    return {"msg": "pong"}
+
