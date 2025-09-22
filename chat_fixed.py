@@ -27,8 +27,8 @@ FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
 CONF_THRESHOLD = 0.60
 LOG_ALL_QUESTIONS = True
 
-FAQ_API_URL = "http://localhost:9000/search"
-INVENTORY_API_URL = "http://localhost:9000/inventory"
+FAQ_API_URL = "http://localhost:8000/search"
+INVENTORY_API_URL = "http://localhost:8000/inventory"
 
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
@@ -242,7 +242,7 @@ def process_message(sentence: str) -> str:
                         break
             if faq:
                 reply = faq
-                tag_to_log = "faq_search"
+                tag_to_log = "faq_data"
 
     # 3) Bootstrap theo flows.json
     if reply is None:
@@ -254,11 +254,19 @@ def process_message(sentence: str) -> str:
             reply = boot
 
     # 4) Trả lời theo intent khi tự tin đủ
+    # 4) Trả lời theo intent khi tự tin đủ
     if reply is None and confidence > CONF_THRESHOLD:
-        resp_list = next((it["responses"] for it in intents["intents"] if it["tag"] == tag), None)
-        if resp_list:
-            reply = random.choice(resp_list)
-            tag_to_log = tag
+        # 🔴 Trước khi lấy từ intents.json, thử gọi FAQ API một lần nữa
+        faq = get_faq_response(sentence)
+        if faq:
+            reply = faq
+            tag_to_log = "faq_data"
+        else:
+            # Nếu không có FAQ thì mới fallback qua intents.json
+            resp_list = next((it["responses"] for it in intents["intents"] if it["tag"] == tag), None)
+            if resp_list:
+                reply = random.choice(resp_list)
+                tag_to_log = tag
 
     # 5) Fallback
     if reply is None:
