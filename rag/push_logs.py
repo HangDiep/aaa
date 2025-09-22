@@ -9,8 +9,16 @@ from notion_client import Client
 # =========================
 # CẤU HÌNH ĐƯỜNG DẪN
 # =========================
-ENV_PATH  = r"D:/HTML/chat2/rag/.env"     # chứa NOTION_TOKEN, NOTION_DATABASE_ID
-CHAT_DB   = r"D:/HTML/chat2/chat.db"      # nơi có bảng conversations
+   # nơi có bảng conversations
+
+
+
+ENV_PATH  = r"C:\Users\ADMIN\OneDrive\Desktop\aaa\rag\.env"     # chứa NOTION_TOKEN, NOTION_DATABASE_ID
+CHAT_DB   = r"C:\Users\ADMIN\OneDrive\Desktop\aaa\chat.db"
+
+
+     # nơi có bảng conversations
+
 # Lưu ý: KHÔNG dùng faqs.db nữa trong script này
 
 # =========================

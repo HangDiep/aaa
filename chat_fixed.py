@@ -1,25 +1,23 @@
+#chat_fixed.py
 import os
 import random
 import json
 import sqlite3
 import datetime
 from typing import Optional
-
 import numpy as np
 import torch
 import requests
-
 from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 from state_manager import StateManager
-
 
 # =========================
 # Config
 # =========================
 DB_PATH = "chat.db"
 # 👉 Sửa đường dẫn này theo máy của bạn nếu cần
-FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
+FAQ_DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
 CONF_THRESHOLD = 0.60  # tạm hạ để dễ kích hoạt intent khi data còn mỏng
 LOG_ALL_QUESTIONS = True  # True = log mọi câu; False = chỉ log khi bot chưa hiểu / tự tin thấp
 
@@ -30,7 +28,6 @@ INVENTORY_API_URL = "http://localhost:8000/inventory"
 # Flow control
 INTERRUPT_INTENTS = set()  # không ngắt flow bằng intent; chỉ hủy bằng CANCEL_WORDS
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
-
 
 # =========================
 # DB helpers
@@ -53,7 +50,6 @@ def ensure_main_db() -> sqlite3.Connection:
     conn.commit()
     return conn
 
-
 def ensure_questions_log_db() -> None:
     dir_name = os.path.dirname(FAQ_DB_PATH)
     if dir_name and not os.path.exists(dir_name):
@@ -73,7 +69,6 @@ def ensure_questions_log_db() -> None:
     conn2.commit()
     conn2.close()
 
-
 def log_question_for_notion(question: str) -> None:
     """Ghi 1 câu hỏi + trả lời vào inbox để push lên Notion (push_logs.py)."""
     if not question or not question.strip():
@@ -92,7 +87,6 @@ def log_question_for_notion(question: str) -> None:
             conn2.close()
         except Exception:
             pass
-
 
 # =========================
 # Model load
@@ -125,16 +119,19 @@ try:
 except Exception:
     state_mgr = StateManager()
 
-
-# =========================
 # API helpers
-# =========================
 def get_faq_response(sentence: str) -> Optional[str]:
     try:
         resp = requests.get(FAQ_API_URL, params={"q": sentence}, timeout=5)
         if resp.status_code == 200:
             data = resp.json()
-            if isinstance(data, list) and data:
+            # Xử lý nếu là dict (theo api.py)
+            if isinstance(data, dict):
+                ans = data.get("answer") or data.get("question")  # Lấy answer hoặc fallback
+                if ans:
+                    return ans
+            # Xử lý nếu là list (dự phòng)
+            elif isinstance(data, list) and data:
                 ans = data[0].get("answer")
                 if ans:
                     return ans
@@ -146,32 +143,35 @@ def get_faq_response(sentence: str) -> Optional[str]:
         print(f"[FAQ] Lỗi xử lý dữ liệu: {e}")
         return None
 
-
 def get_inventory_response(sentence: str) -> Optional[str]:
     try:
-        resp = requests.get(INVENTORY_API_URL, params={"book_name": sentence}, timeout=5)
+        lower = sentence.lower().strip()
+        # Loại bỏ từ "sách" hoặc "ngành" nếu có
+        for kw in ["sách", "ngành"]:
+            if lower.startswith(kw + " "):
+                lower = lower.replace(kw, "", 1).strip()
+        if not lower:
+            return None
+
+        resp = requests.get(INVENTORY_API_URL, params={"book_name": lower}, timeout=5)
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, list) and data:
-                book = data[0]
-                name = book.get("name")
-                author = book.get("author", "?")
-                year = book.get("year", "?")
-                quantity = book.get("quantity", "?")
-                status = book.get("status", "?")
-                if name:
-                    return (
-                        f"Sách '{name}' của tác giả {author}, năm xuất bản {year}, "
-                        f"số lượng: {quantity}, trạng thái: {status}"
-                    )
-        return None
-    except requests.RequestException as e:
-        print(f"[Inventory] Lỗi kết nối API: {e}")
-        return None
+                lines = []
+                for book in data:
+                    name = book.get("name")
+                    author = book.get("author", "?")
+                    year = book.get("year", "?")
+                    quantity = book.get("quantity", "?")
+                    status = book.get("status", "?")
+                    if name:
+                        lines.append(f"- '{name}' của {author}, {year}, số lượng: {quantity}, trạng thái: {status}")
+                if lines:
+                    return "Các sách tìm thấy cho ngành hoặc từ khóa này:\n" + "\n".join(lines)
+        return "Không tìm thấy sách phù hợp cho ngành hoặc từ khóa này."
     except Exception as e:
-        print(f"[Inventory] Lỗi xử lý dữ liệu: {e}")
+        print(f"[Inventory] Lỗi: {e}")
         return None
-
 
 # =========================
 # Runtime
@@ -232,10 +232,10 @@ try:
                 reply = ctx_reply
                 tag_to_log = tag
 
-        # 1) Ưu tiên kiểm tra sách nếu chứa từ khóa
+        # 1) Ưu tiên kiểm tra sách nếu chứa từ khóa (mở rộng để hỗ trợ "ngành")
         if reply is None:
             book_keywords = [
-                "sách", "tồn kho", "mượn",
+                "sách", "tồn kho", "mượn", "ngành",  # Thêm "ngành" để kích hoạt
                 "cấu trúc dữ liệu", "trí tuệ nhân tạo", "lập trình python"
             ]
             if any(w in lower_sentence for w in book_keywords):
@@ -251,7 +251,7 @@ try:
 
         # 2) Tìm trong FAQ nếu câu hỏi thiên về thư viện
         if reply is None:
-            faq_keywords = ["thư viện", "địa chỉ", "giờ", "liên hệ", "nội quy"]
+            faq_keywords = ["thư viện", "địa chỉ", "giờ", "liên hệ", "nội quy", "xin chào", "chào", "tạm biệt", "sai rồi"]  # Thêm từ khóa chào/tạm biệt
             if any(w in lower_sentence for w in faq_keywords):
                 faq = get_faq_response(sentence)
                 if not faq:
@@ -312,4 +312,3 @@ finally:
         conn.close()
     except Exception:
         pass
-        
