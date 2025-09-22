@@ -27,8 +27,8 @@ FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
 CONF_THRESHOLD = 0.60
 LOG_ALL_QUESTIONS = True
 
-FAQ_API_URL = "http://localhost:8000/search"
-INVENTORY_API_URL = "http://localhost:8000/inventory"
+FAQ_API_URL = "http://localhost:9000/search"
+INVENTORY_API_URL = "http://localhost:9000/inventory"
 
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
