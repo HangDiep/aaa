@@ -10,18 +10,39 @@ from state_manager import StateManager
 import threading
 from dotenv import load_dotenv
 from notion_client import Client
+from typing import Optional, List, Dict
 # =========================
 # Paths & Config
 # =========================
+
+
+# =========================
+# Ollama config
+# =========================
+ENV_PATH = r"D:/HTML/chat2/rag/.env"
+try:
+    if os.path.exists(ENV_PATH):
+        load_dotenv(ENV_PATH)
+except Exception:
+    pass
+_notion_cached = None
+
+# Có thể đặt trong .env (ưu tiên .env) hoặc dùng default dưới đây
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")  # đổi thành model bạn đã pull
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "20"))  # giây
+ENABLE_OLLAMA_APPEND = True  # bật/tắt việc cho Ollama viết thêm
+MAX_OLLAMA_APPEND_TOKENS = 150  # số token tối đa Ollama được viết thêm
 FAQ_API_URL = None
 INVENTORY_API_URL = None
 
-ENV_PATH = r"D:/HTML/chat2/rag/.env"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+#ng dùng hỏi bot trả lời lưu vào chat.db
 CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
 print(f"[ChatDB] Using: {CHAT_DB_PATH}")
 
 DB_PATH = CHAT_DB_PATH  # dùng đúng đường dẫn DB
+#Ghi các câu hỏi “chưa hiểu” hoặc “chờ duyệt”
 FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
 
 CONF_THRESHOLD = 0.60
@@ -114,22 +135,38 @@ except Exception:
 
 def _now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-# =========================
-# API helpers
-# =========================
 def get_faq_response(sentence: str) -> Optional[str]:
+    """
+    Gọi FAQ API và trả về kết quả dạng bảng text đẹp,
+    thay vì JSON thô.
+    """
     try:
         resp = requests.get(FAQ_API_URL, params={"q": sentence}, timeout=5)
         if resp.status_code != 200:
             print(f"[FAQ] HTTP {resp.status_code}: {resp.text[:200]}")
             return None
+        
         data = resp.json()
-        if isinstance(data, list) and data:
-            ans = data[0].get("answer")
-            if ans:
-                return ans
-        return None
+        if not isinstance(data, list) or not data:
+            return None
+
+        # Dựng bảng text
+        lines: List[str] = []
+        lines.append("📖 **Kết quả FAQ:**\n")
+        lines.append("| Câu hỏi | Trả lời |")
+        lines.append("|---------|---------|")
+
+        for item in data:
+            q = item.get("question", "").strip()
+            a = item.get("answer", "").strip()
+            if q or a:
+                # Escape ký tự '|' để không phá bảng
+                q = q.replace("|", "｜")
+                a = a.replace("|", "｜")
+                lines.append(f"| {q} | {a} |")
+
+        return "\n".join(lines) if len(lines) > 3 else None
+
     except requests.RequestException as e:
         print(f"[FAQ] Lỗi kết nối API: {e}")
         return None
@@ -174,114 +211,38 @@ def process_message(sentence: str) -> str:
 
     lower_sentence = sentence.lower()
 
-    # Hủy flow thủ công
-    if lower_sentence in CANCEL_WORDS:
-        try:
-            state_mgr.exit_flow()
-        except Exception:
-            pass
-        reply = "Đã hủy luồng hiện tại. Bạn muốn hỏi gì tiếp?"
-        conn = ensure_main_db()
-        cur  = conn.cursor()
-        cur.execute(
-            "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
-            (sentence, reply, None, 0.0, _now()),
-        )
-        conn.commit(); conn.close()
-        return reply
-
+    # KHỞI TẠO BIẾN TRƯỚC KHI DÙNG
     reply: Optional[str] = None
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
 
-    # --- NLU: dự đoán intent ---
-    tokens = tokenize(sentence)
-    X = bag_of_words(tokens, all_words)
-    X = torch.from_numpy(X).unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        output = model(X)
-        probs = torch.softmax(output, dim=1)
-        prob, pred_idx = torch.max(probs, dim=1)
-        tag = tags[pred_idx.item()]
-        confidence = float(prob.item())
-
-    # 0) Nếu đang có flow hoạt động → ưu tiên
-    if getattr(state_mgr, "active_flow", None):
-        try:
-            ctx_reply = state_mgr.handle(tag, sentence)
-        except Exception:
-            ctx_reply = None
-        if ctx_reply:
-            reply = ctx_reply
-            tag_to_log = tag
-
-    # 1) Kiểm tra kho sách nếu có từ khóa
-    if reply is None:
-        book_keywords = ["sách", "tồn kho", "mượn", "cấu trúc dữ liệu", "trí tuệ nhân tạo", "lập trình python"]
-        if any(w in lower_sentence for w in book_keywords):
-            inv = get_inventory_response(sentence)
-            if not inv:
-                for kw in sentence.split():
-                    inv = get_inventory_response(kw)
-                    if inv:
-                        break
-            if inv:
-                reply = inv
-                tag_to_log = "inventory_search"
-
-    # 2) FAQ thư viện
-    if reply is None:
-        faq_keywords = ["thư viện", "địa chỉ", "giờ", "liên hệ", "nội quy"]
-        if any(w in lower_sentence for w in faq_keywords):
-            faq = get_faq_response(sentence)
-            if not faq:
-                for kw in sentence.split():
-                    faq = get_faq_response(kw)
-                    if faq:
-                        break
-            if faq:
-                reply = faq
-                tag_to_log = "faq_data"
-
-    # 3) Bootstrap theo flows.json
-    if reply is None:
-        try:
-            boot = state_mgr.bootstrap_by_text(sentence)
-        except Exception:
-            boot = None
-        if boot:
-            reply = boot
-
-    # 4) Trả lời theo intent khi tự tin đủ
-    # 4) Trả lời theo intent khi tự tin đủ
-    if reply is None and confidence > CONF_THRESHOLD:
-        # 🔴 Trước khi lấy từ intents.json, thử gọi FAQ API một lần nữa
-        faq = get_faq_response(sentence)
-        if faq:
-            reply = faq
-            tag_to_log = "faq_data"
-        else:
-            # Nếu không có FAQ thì mới fallback qua intents.json
-            resp_list = next((it["responses"] for it in intents["intents"] if it["tag"] == tag), None)
-            if resp_list:
-                reply = random.choice(resp_list)
-                tag_to_log = tag
-
-    # 5) Fallback
-    if reply is None:
+    # ======= phần NLU / flow / inventory / FAQ / ... của bạn ở dưới đây =======
+    # ... (sau các bước trên, nếu vẫn chưa có reply) ...
+    if reply is None or not str(reply).strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
 
-    # Lưu log hội thoại
-    conn = ensure_main_db()
-    cur  = conn.cursor()
+    # APPEND-ONLY bằng Ollama
+    fallback_reply = "Xin lỗi, mình chưa hiểu ý bạn."
+    if ENABLE_OLLAMA_APPEND and reply.strip() and reply.strip() != fallback_reply:
+        base_reply = reply
+        try:
+            extra = ollama_generate_append(base_reply, sentence)
+            if extra and extra.strip() and extra.strip() not in base_reply:
+                reply = f"{base_reply.strip()} {extra.strip()}"
+            else:
+                reply = base_reply
+        except Exception:
+            reply = base_reply
+
+
+    # Lưu log + push Notion (giữ nguyên như bạn đang làm)
+    conn = ensure_main_db(); cur = conn.cursor()
     cur.execute(
         "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
         (sentence, reply, tag_to_log, confidence, _now()),
     )
     conn.commit(); conn.close()
 
-    # Ghi inbox để đẩy lên Notion
     should_push = (
         LOG_ALL_QUESTIONS
         or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
@@ -291,13 +252,10 @@ def process_message(sentence: str) -> str:
     if should_push:
         try:
             threading.Thread(target=push_to_notion, args=(sentence, reply), daemon=True).start()
-        except Exception:
-            pass
+        except Exception as e:
+            print("Notion push error:", e)
 
     return reply
-
-
-_notion_cached = None
 def _get_notion_client():
     """
     Lazy-init Notion Client từ .env. Nếu thiếu token/DBID -> trả về None (không chặn luồng chat).
@@ -307,8 +265,6 @@ def _get_notion_client():
         return _notion_cached
 
     try:
-        if os.path.exists(ENV_PATH):
-            load_dotenv(ENV_PATH)
         token = os.getenv("NOTION_TOKEN")
         dbid  = os.getenv("NOTION_DATABASE_ID")
         if token and dbid:
@@ -349,6 +305,88 @@ def push_to_notion(q: str, a: str):
         # dùng properties theo đúng schema DB của bạn
     except Exception as e:
         print(f"⚠️ Lỗi khi tạo page Notion: {e}")
+def ollama_generate_append(base_reply: str, user_message: str) -> str:
+    """
+    Gọi Ollama để VIẾT THÊM 1–3 câu tiếng Việt, bám ngữ cảnh thư viện.
+    Không thay thế nội dung chính; tránh bịa và KHÔNG mâu thuẫn dữ kiện có sẵn.
+    Trả về chuỗi bổ sung hoặc "" nếu lỗi/không có gì.
+    """
+    if not ENABLE_OLLAMA_APPEND:
+        return ""
+
+    system_prompt = (
+        "Bạn là trợ lý THƯ VIỆN Trường Đại học Tây Nguyên (DHTN).\n"
+        "- Chỉ BỔ SUNG 1–2 câu, ngắn gọn, bám CÂU TRẢ LỜI GỐC.\n"
+        "- Chỉ nói về: giờ mở/đóng, mượn–trả, thẻ thư viện, quy định, phí phạt, tra cứu, khu sách, liên hệ.\n"
+        "- Nếu không chắc liên quan thư viện: TRẢ VỀ CHUỖI RỖNG.\n"
+        "- KHÔNG bịa, KHÔNG quảng cáo, KHÔNG trả lời câu cá nhân/ngoài phạm vi.\n"
+        "- Chỉ TIẾNG VIỆT. KHÔNG chuyển ngôn ngữ khác.\n"
+        "- KHÔNG chào hỏi xã giao, KHÔNG dùng ngoặc kép, KHÔNG cảm thán."
+    )
+
+
+    # Dùng /api/generate của Ollama (đơn giản, latency thấp)
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    payload = {
+    "model": OLLAMA_MODEL,
+    "prompt": f"{system_prompt}\n\nNgười dùng: {user_message}\nCâu trả lời gốc:\n{base_reply}\n\nYêu cầu: Bổ sung 1–2 câu. Nếu không phù hợp, trả về trống.",
+    "stream": False,
+    "options": {
+        "temperature": 0.1,          # bớt bay
+        "top_p": 0.9,
+        "repeat_penalty": 1.2,       # hạn chế lặp
+        "num_predict": 80,           # ngắn gọn
+        "stop": ["\n\n", "\"", "”", "“"]  # chặn xuống dòng dài, ngoặc kép
+    }
+}
+
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        if r.status_code != 200:
+            print(f"[Ollama] HTTP {r.status_code}: {r.text[:200]}")
+            return ""
+        data = r.json()  # {"model": "...", "created_at": "...", "response": "...", ...}
+        extra = (data.get("response") or "").strip()
+        # Lọc bớt mô tả thừa
+        if not extra:
+            return ""
+        # Chặn việc lặp lại y nguyên reply chính
+        if extra in base_reply:
+            return ""
+        # Rút gọn 1–3 câu (phòng trường hợp model viết dài)
+        # Tách theo dấu chấm. Nếu thấy xuống dòng, ghép lại.
+        sentences = [s.strip() for s in extra.replace("\n", " ").split(".") if s.strip()]
+        if not sentences:
+            return ""
+        extra_short = ". ".join(sentences[:3]).strip()
+        if extra_short and not extra_short.endswith("."):
+            extra_short += "."
+        extra_short = sanitize_vi(extra_short)
+        if not extra_short:
+            return ""
+        return extra_short
+    except requests.RequestException as e:
+        print(f"[Ollama] Lỗi kết nối: {e}")
+        return ""
+    except Exception as e:
+        print(f"[Ollama] Lỗi xử lý: {e}")
+        return ""
+import re
+
+def sanitize_vi(extra: str) -> str:
+    if not extra: return ""
+    # bỏ ký tự CJK/emoji
+    extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
+    extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
+    # bỏ ngoặc kép + khoảng trắng thừa
+    extra = extra.replace('“','').replace('”','').replace('"','').strip()
+    extra = re.sub(r'\s+', ' ', extra)
+    # bỏ câu chào/ xã giao
+    banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
+    if extra.lower().startswith(banned_starts): return ""
+    # quá ngắn/ vô nghĩa
+    if len(extra.split()) < 3: return ""
+    return extra
 
 # =========================
 # CLI chỉ chạy khi gọi trực tiếp file
