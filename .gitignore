@@ -20,4 +20,8 @@ __pycache__/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-NUL
+
+.env
+create_*_db.py
+
+faq.db

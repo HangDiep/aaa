@@ -1,9 +1,9 @@
-import os, random, json, sqlite3, datetime
-from typing import Optional
 
+import os, random, json, sqlite3, datetime
+#chat_fixed.py
+from typing import Optional
 import numpy as np
 import torch, requests
-
 from model import NeuralNet
 from nltk_utils import tokenize, bag_of_words
 from state_manager import StateManager
@@ -11,14 +11,6 @@ import threading
 from dotenv import load_dotenv
 from notion_client import Client
 from typing import Optional, List, Dict
-# =========================
-# Paths & Config
-# =========================
-
-
-# =========================
-# Ollama config
-# =========================
 ENV_PATH = r"D:/HTML/chat2/rag/.env"
 try:
     if os.path.exists(ENV_PATH):
@@ -44,7 +36,6 @@ print(f"[ChatDB] Using: {CHAT_DB_PATH}")
 DB_PATH = CHAT_DB_PATH  # dùng đúng đường dẫn DB
 #Ghi các câu hỏi “chưa hiểu” hoặc “chờ duyệt”
 FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
-
 CONF_THRESHOLD = 0.60
 LOG_ALL_QUESTIONS = True
 
@@ -108,6 +99,7 @@ def log_question_for_notion(question: str) -> None:
     conn2.commit()
     conn2.close()
 
+
 # =========================
 # Model load
 # =========================
@@ -135,6 +127,7 @@ except Exception:
 
 def _now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 def get_faq_response(sentence: str) -> Optional[str]:
     """
     Gọi FAQ API và trả về kết quả dạng bảng text đẹp,
@@ -200,7 +193,6 @@ def get_inventory_response(sentence: str) -> Optional[str]:
     except Exception as e:
         print(f"[Inventory] Lỗi xử lý dữ liệu: {e}")
         return None
-
 # =========================
 # CORE: xử lý 1 câu (web/CLI dùng chung)
 # =========================
@@ -256,6 +248,14 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
+def _get_notion_client():
+    """
+    Lazy-init Notion Client từ .env. Nếu thiếu token/DBID -> trả về None (không chặn luồng chat).
+    """
+    global _notion_cached
+    if _notion_cached is not None:
+        return _notion_cached
+
 def _get_notion_client():
     """
     Lazy-init Notion Client từ .env. Nếu thiếu token/DBID -> trả về None (không chặn luồng chat).
