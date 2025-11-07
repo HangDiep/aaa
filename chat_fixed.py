@@ -1,7 +1,6 @@
 
 import os, random, json, sqlite3, datetime
 #chat_fixed.py
-from typing import Optional
 import numpy as np
 import torch, requests
 from model import NeuralNet
@@ -207,13 +206,8 @@ def process_message(sentence: str) -> str:
     reply: Optional[str] = None
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
-
-    # ======= phần NLU / flow / inventory / FAQ / ... của bạn ở dưới đây =======
-    # ... (sau các bước trên, nếu vẫn chưa có reply) ...
     if reply is None or not str(reply).strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
-
-    # APPEND-ONLY bằng Ollama
     fallback_reply = "Xin lỗi, mình chưa hiểu ý bạn."
     if ENABLE_OLLAMA_APPEND and reply.strip() and reply.strip() != fallback_reply:
         base_reply = reply
