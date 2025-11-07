@@ -15,13 +15,20 @@ from state_manager import StateManager
 # =========================
 # Config
 # =========================
-DB_PATH = "chat.db"
-# 👉 Sửa đường dẫn này theo máy của bạn nếu cần
-FAQ_DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
-CONF_THRESHOLD = 0.60  # tạm hạ để dễ kích hoạt intent khi data còn mỏng
-LOG_ALL_QUESTIONS = True  # True = log mọi câu; False = chỉ log khi bot chưa hiểu / tự tin thấp
+FAQ_API_URL = None
+INVENTORY_API_URL = None
 
-# API endpoints (FastAPI backend)
+ENV_PATH = r"D:/HTML/chat2/rag/.env"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
+print(f"[ChatDB] Using: {CHAT_DB_PATH}")
+
+DB_PATH = CHAT_DB_PATH  # dùng đúng đường dẫn DB
+FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
+
+CONF_THRESHOLD = 0.60
+LOG_ALL_QUESTIONS = True
+
 FAQ_API_URL = "http://localhost:8000/search"
 INVENTORY_API_URL = "http://localhost:8000/inventory"
 
