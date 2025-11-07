@@ -68,7 +68,21 @@ def get_major_name(major_id: str):
     if name_prop.get("title"):
         return name_prop["title"][0].get("plain_text", "")
     return None
+# Thêm hàm debug
+def debug_database_properties():
+    url = f"https://api.notion.com/v1/databases/{DATABASE_ID}"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code != 200:
+        print("Lỗi lấy info DB:", response.text)
+        return
+    data = response.json()
+    props = data.get("properties", {})
+    print("\n=== TẤT CẢ PROPERTY TRONG DATABASE ===")
+    for key, val in props.items():
+        print(f"- '{key}' (type: {val['type']})")
+    print("=======================================\n")
 
+# Gọi hàm này trước fetch_books()
 # =========================
 # Get data from Notion
 # =========================
@@ -139,9 +153,9 @@ def save_books(conn, books_data):
         book = {
             "ten_sach": props.get("Tên sách", {}).get("title", [{}])[0].get("plain_text") 
                         if props.get("Tên sách", {}).get("title") else None,
-            "tac_gia": props.get(" Tác giả", {}).get("rich_text", [{}])[0].get("plain_text")  
-                        if props.get(" Tác giả", {}).get("rich_text") else None,
-            "nam_xuat_ban": props.get("Năm xuất bản", {}).get("number"),
+            "tac_gia": props.get("Tác giả ", {}).get("rich_text", [{}])[0].get("plain_text")  
+                        if props.get("Tác giả ", {}).get("rich_text") else None,
+            "nam_xuat_ban": props.get("Năm xuất bản ", {}).get("number"),
             "so_luong_ton_kho": props.get("Số lượng tồn kho", {}).get("number"),
             "nganh": nganh_name,  # ✅ Lưu thẳng tên ngành
             "id_nganh": id_nganh,
@@ -181,6 +195,8 @@ def save_books(conn, books_data):
 # =========================
 if __name__ == "__main__":
     try:
+        debug_database_properties()
+
         conn = init_db()
         books_data = fetch_books()
         save_books(conn, books_data)
