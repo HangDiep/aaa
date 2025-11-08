@@ -1,5 +1,8 @@
 {
     "python.analysis.extraPaths": [
         "./rag"
+    ],
+    "cSpell.words": [
+        "cảnh"
     ]
 }

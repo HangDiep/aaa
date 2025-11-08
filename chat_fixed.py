@@ -1,6 +1,5 @@
-
-import os, random, json, sqlite3, datetime
-#chat_fixed.py
+import os, random, json, sqlite3, datetime, re, time
+# chat_fixed.py
 import numpy as np
 import torch, requests
 from model import NeuralNet
@@ -10,43 +9,52 @@ import threading
 from dotenv import load_dotenv
 from notion_client import Client
 from typing import Optional, List, Dict
-ENV_PATH = r"D:/HTML/chat2/rag/.env"
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import socket
+
+# ============== CẤU HÌNH ==============
+ENV_PATH = r"D:\HTML\a\rag\.env"
+
 try:
     if os.path.exists(ENV_PATH):
-        load_dotenv(ENV_PATH)
+        load_dotenv(ENV_PATH, override=True)
 except Exception:
     pass
+
+print("=== DEBUG ENV CHECK ===")
+print("ENV_PATH =", ENV_PATH, "| exists:", os.path.exists(ENV_PATH))
+print("NOTION_API_KEY =", os.getenv("NOTION_API_KEY"))
+print("NOTION_BASE_URL =", os.getenv("NOTION_BASE_URL"))
+print("DATABASE_ID_FAQ =", os.getenv("DATABASE_ID_FAQ"))
+print("========================")
+
 _notion_cached = None
+_notion_warned_once = False  # chỉ cảnh báo 1 lần khi lỗi HTTP push
 
-# Có thể đặt trong .env (ưu tiên .env) hoặc dùng default dưới đây
+# Ollama (có thể tắt nếu lỗi mạng)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")  # đổi thành model bạn đã pull
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "20"))  # giây
-ENABLE_OLLAMA_APPEND = True  # bật/tắt việc cho Ollama viết thêm
-MAX_OLLAMA_APPEND_TOKENS = 150  # số token tối đa Ollama được viết thêm
-FAQ_API_URL = None
-INVENTORY_API_URL = None
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-#ng dùng hỏi bot trả lời lưu vào chat.db
-CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
-print(f"[ChatDB] Using: {CHAT_DB_PATH}")
-
-DB_PATH = CHAT_DB_PATH  # dùng đúng đường dẫn DB
-#Ghi các câu hỏi “chưa hiểu” hoặc “chờ duyệt”
-FAQ_DB_PATH = os.path.normpath("D:/HTML/chat2/rag/faqs.db")
-CONF_THRESHOLD = 0.60
-LOG_ALL_QUESTIONS = True
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "20"))
+ENABLE_OLLAMA_APPEND = os.getenv("ENABLE_OLLAMA_APPEND", "true").lower() != "false"
+MAX_OLLAMA_APPEND_TOKENS = 150
 
 FAQ_API_URL = "http://localhost:8000/search"
 INVENTORY_API_URL = "http://localhost:8000/inventory"
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
+print(f"[ChatDB] Using: {CHAT_DB_PATH}")
+DB_PATH = CHAT_DB_PATH
+
+FAQ_DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
+CONF_THRESHOLD = 0.60
+LOG_ALL_QUESTIONS = True
+
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
 
-# =========================
-# DB helpers
-# =========================
+# ============== DB helpers ==============
 def ensure_main_db() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True) if os.path.dirname(DB_PATH) else None
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -98,10 +106,7 @@ def log_question_for_notion(question: str) -> None:
     conn2.commit()
     conn2.close()
 
-
-# =========================
-# Model load
-# =========================
+# ============== Model load ==============
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 with open("intents.json", "r", encoding="utf-8-sig") as f:
@@ -127,38 +132,28 @@ except Exception:
 def _now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+# ============== FAQ / Inventory ==============
 def get_faq_response(sentence: str) -> Optional[str]:
-    """
-    Gọi FAQ API và trả về kết quả dạng bảng text đẹp,
-    thay vì JSON thô.
-    """
     try:
         resp = requests.get(FAQ_API_URL, params={"q": sentence}, timeout=5)
         if resp.status_code != 200:
             print(f"[FAQ] HTTP {resp.status_code}: {resp.text[:200]}")
             return None
-        
         data = resp.json()
         if not isinstance(data, list) or not data:
             return None
-
-        # Dựng bảng text
         lines: List[str] = []
         lines.append("📖 **Kết quả FAQ:**\n")
         lines.append("| Câu hỏi | Trả lời |")
         lines.append("|---------|---------|")
-
         for item in data:
             q = item.get("question", "").strip()
             a = item.get("answer", "").strip()
             if q or a:
-                # Escape ký tự '|' để không phá bảng
                 q = q.replace("|", "｜")
                 a = a.replace("|", "｜")
                 lines.append(f"| {q} | {a} |")
-
         return "\n".join(lines) if len(lines) > 3 else None
-
     except requests.RequestException as e:
         print(f"[FAQ] Lỗi kết nối API: {e}")
         return None
@@ -192,24 +187,24 @@ def get_inventory_response(sentence: str) -> Optional[str]:
     except Exception as e:
         print(f"[Inventory] Lỗi xử lý dữ liệu: {e}")
         return None
-# =========================
-# CORE: xử lý 1 câu (web/CLI dùng chung)
-# =========================
+
+# ============== CORE chat ==============
 def process_message(sentence: str) -> str:
     sentence = (sentence or "").strip()
     if not sentence:
         return "Xin lỗi, mình chưa hiểu ý bạn."
 
-    lower_sentence = sentence.lower()
-
-    # KHỞI TẠO BIẾN TRƯỚC KHI DÙNG
+    # TODO: ở đây bạn có thể thêm logic intents / flow / faq / inventory ...
     reply: Optional[str] = None
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
-    if reply is None or not str(reply).strip():
+
+    # ví dụ: chưa có ý tưởng → trả lời mặc định
+    if reply is None or not reply.strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
-    fallback_reply = "Xin lỗi, mình chưa hiểu ý bạn."
-    if ENABLE_OLLAMA_APPEND and reply.strip() and reply.strip() != fallback_reply:
+
+    # 2) Ollama append (không chặn luồng)
+    if ENABLE_OLLAMA_APPEND and reply.strip():
         base_reply = reply
         try:
             extra = ollama_generate_append(base_reply, sentence)
@@ -220,15 +215,23 @@ def process_message(sentence: str) -> str:
         except Exception:
             reply = base_reply
 
-
-    # Lưu log + push Notion (giữ nguyên như bạn đang làm)
-    conn = ensure_main_db(); cur = conn.cursor()
+    # 3) Ghi SQLite trước
+    conn = ensure_main_db()
+    cur  = conn.cursor()
     cur.execute(
         "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
         (sentence, reply, tag_to_log, confidence, _now()),
     )
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
+    # 3.1) Ghi thêm vào faq.db (inbox)
+    try:
+        log_question_for_notion(f"User: {sentence}\nBot: {reply}")
+    except Exception as e:
+        print(f"[Notion inbox] Lỗi ghi faq.db: {e}")
+
+    # 4) Đẩy Notion (không chặn luồng chat)
     should_push = (
         LOG_ALL_QUESTIONS
         or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
@@ -242,153 +245,352 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
-def _get_notion_client():
-    """
-    Lazy-init Notion Client từ .env. Nếu thiếu token/DBID -> trả về None (không chặn luồng chat).
-    """
-    global _notion_cached
-    if _notion_cached is not None:
-        return _notion_cached
 
-def _get_notion_client():
-    """
-    Lazy-init Notion Client từ .env. Nếu thiếu token/DBID -> trả về None (không chặn luồng chat).
-    """
-    global _notion_cached
-    if _notion_cached is not None:
-        return _notion_cached
 
+def _dns_ok(host: str, timeout_s: float = 3.0) -> bool:
     try:
-        token = os.getenv("NOTION_TOKEN")
-        dbid  = os.getenv("NOTION_DATABASE_ID")
-        if token and dbid:
-            _notion_cached = (Client(auth=token), dbid)
-        else:
-            print("⚠️ NOTION_TOKEN/NOTION_DATABASE_ID chưa có trong .env hoặc .env không tồn tại.")
-            _notion_cached = None
-    except Exception as e:
-        print(f"⚠️ Lỗi khởi tạo Notion Client: {e}")
-        _notion_cached = None
-    return _notion_cached
+        socket.setdefaulttimeout(timeout_s)
+        socket.getaddrinfo(host, 443)
+        return True
+    except Exception:
+        return False
+# ============== Notion helpers (ntn_ token, auto-mapping) ==============
+from functools import lru_cache
+
+def _resolve_notion_env():
+    try:
+        if os.path.exists(ENV_PATH):
+            load_dotenv(ENV_PATH, override=True)
+    except Exception:
+        pass
+    token = os.getenv("NOTION_TOKEN") or os.getenv("NOTION_API_KEY") or ""
+    dbid  = (
+        os.getenv("NOTION_DATABASE_ID")
+        or os.getenv("DATABASE_ID_FAQ")
+        or os.getenv("DATABASE_ID_BOOKS")
+        or os.getenv("DATABASE_ID_MAJORS")
+        or ""
+    )
+    base  = (os.getenv("NOTION_BASE_URL") or "https://api.notion.com/v1").rstrip("/")
+    mode  = "sdk" if token.startswith("secret_") else "http"  # ntn_ => http
+
+    # Fallback an toàn nếu đang trỏ tới ntn-api nhưng DNS/route hỏng
+    if token.startswith("ntn_") and "ntn-api.notion.so" in base:
+        if not _dns_ok("ntn-api.notion.so"):
+            base = "https://api.notion.com/v1"
+
+    return token, dbid, mode, base
 
 def _rt(txt: str):
     return [{"type": "text", "text": {"content": txt or ""}}]
 
+def _http_session_with_retry(total=2, backoff=0.6):
+    s = requests.Session()
+    retry = Retry(
+        total=total,
+        backoff_factor=backoff,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST", "HEAD"],
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    s.mount("http://", HTTPAdapter(max_retries=retry))
+    return s
+
+def _ntn_session():
+    # nhẹ hơn, ưu tiên giảm chờ
+    return _http_session_with_retry(total=1, backoff=0.4)
+
+def ntn_ok(base: str) -> bool:
+    """Preflight: confirm CF/Notion phản hồi để tránh timeout kéo dài."""
+    base = (base or "").rstrip("/")
+    try:
+        r = requests.get("https://api.notion.com/v1/status", timeout=6)
+        if r.status_code not in (200, 400, 401, 405):
+            print("[Preflight] api.notion.com status:", r.status_code)
+    except requests.exceptions.RequestException:
+        return False
+
+    if "ntn-api.notion.so" in base:
+        try:
+            rr = requests.head(f"{base}/pages", timeout=6)
+            return rr.status_code in (200,201,400,401,403,405,429,500,502,503,504,530)
+        except requests.exceptions.RequestException:
+            return False
+    return True
+
+def _http_create_page(token: str, base_url: str, payload: dict, timeout_s: float = 15.0):
+    """POST /pages, trả (ok, status, body_text)."""
+    url = f"{base_url.rstrip('/')}/pages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "Notion-Version": os.getenv("NOTION_VERSION", "2022-06-28"),
+        "Host": "ntn-api.notion.so" if "ntn-api.notion.so" in base_url else "api.notion.com",
+    }
+    try:
+        sess = _ntn_session()
+        r = sess.post(url, headers=headers, json=payload, timeout=timeout_s, allow_redirects=True)
+        ok = r.status_code in (200, 201)
+        return ok, r.status_code, r.text
+    except requests.exceptions.Timeout:
+        return False, 408, "timeout"
+    except Exception as e:
+        return False, -1, f"{type(e).__name__}: {e}"
+
+@lru_cache(maxsize=8)
+def _fetch_db_schema(token: str, base: str, dbid: str) -> dict:
+    """Lấy schema DB để auto-map properties (cache theo (token,base,dbid))."""
+    url = f"{base.rstrip('/')}/databases/{dbid}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": os.getenv("NOTION_VERSION", "2022-06-28"),
+        "Accept": "application/json",
+    }
+    sess = _http_session_with_retry(total=2, backoff=0.5)
+    r = sess.get(url, headers=headers, timeout=10)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"GET /databases/{dbid} FAIL {r.status_code}: {r.text[:500]}")
+    return r.json()
+
+def _pick_prop_by_type(props: dict, want_type: str, prefer_names: list[str]) -> Optional[str]:
+    """Chọn tên cột theo type: ưu tiên theo danh sách tên gợi ý, fallback cột bất kỳ cùng type."""
+    # ưu tiên theo tên
+    lower_props = {k.lower(): k for k in props.keys()}
+    for name in prefer_names:
+        key = lower_props.get(name.lower())
+        if key and props.get(key, {}).get("type") == want_type:
+            return key
+    # fallback: lấy cột đầu tiên có type phù hợp
+    for k, v in props.items():
+        if v.get("type") == want_type:
+            return k
+    return None
+
+def _ensure_select_option(token: str, base: str, dbid: str, prop_name: str, option_name: str) -> str:
+    """
+    Đảm bảo option select tồn tại; nếu chưa có sẽ thêm (best effort).
+    Trả lại option_name (có thể đã tồn tại hoặc vừa tạo).
+    """
+    # Đọc schema
+    schema = _fetch_db_schema(token, base, dbid)
+    props = schema.get("properties", {})
+    prop = props.get(prop_name, {})
+    if prop.get("type") != "select":
+        return option_name  # không phải select thì bỏ qua
+
+    options = prop.get("select", {}).get("options", []) or []
+    names = {opt.get("name"): opt.get("id") for opt in options if isinstance(opt, dict)}
+    if option_name in names:
+        return option_name
+
+    # Thử thêm option qua update database
+    url = f"{base.rstrip('/')}/databases/{dbid}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Notion-Version": os.getenv("NOTION_VERSION", "2022-06-28"),
+    }
+    new_opt = {"name": option_name}
+    body = {
+        "properties": {
+            prop_name: {
+                "select": {
+                    "options": options + [new_opt]
+                }
+            }
+        }
+    }
+    try:
+        r = requests.patch(url, headers=headers, json=body, timeout=12)
+        if r.status_code in (200, 201):
+            return option_name
+        else:
+            # Không tạo được option → vẫn dùng tên option (Notion sẽ reject nếu chưa có)
+            print(f"[Notion] WARN: add select option FAIL {r.status_code}: {r.text[:400]}")
+            return option_name
+    except Exception as e:
+        print(f"[Notion] WARN: add select option error: {e}")
+        return option_name
+
+def _build_dynamic_payload_force(dbid: str, q: str, a: str) -> dict:
+    # BẮT BUỘC có 'Tên' (title). Không dùng select để tránh lỗi option.
+    title_txt = (q or "Câu hỏi").strip()[:200]
+    return {
+        "parent": {"database_id": dbid},
+        "properties": {
+            "Tên": {"title": [{"type": "text", "text": {"content": title_txt}}]},
+            "Question": {"rich_text": [{"type": "text", "text": {"content": q or ""}}]},
+            "Answer":   {"rich_text": [{"type": "text", "text": {"content": a or ""}}]},
+            # BỎ 'Category', 'Language' để tránh lỗi select option
+            # "Approved" để False nếu cột tồn tại (checkbox không cần option)
+            "Approved": {"checkbox": False}
+        }
+    }
+
+
+
+
+
 def push_to_notion(q: str, a: str):
     """
-    Đẩy Q/A lên Notion. Không raise lỗi ra ngoài, để tránh làm hỏng luồng trả lời.
+    Đẩy ngay từng dòng lên Notion (ntn_). Tự dò schema và map properties.
+    In lỗi chi tiết khi fail để bạn sửa đúng chỗ.
     """
-    pair = _get_notion_client()
-    if not pair:
-        return
-    client, dbid = pair
-    q = (q or "").strip()
-    a = (a or "").strip()
+    global _notion_warned_once
+    q = (q or "").strip(); a = (a or "").strip()
     if not q:
         return
+
+    token, dbid, mode, base = _resolve_notion_env()
+    if not token or not dbid:
+        print("[Notion] Bỏ qua: thiếu token/dbid.")
+        return
+
+    # Chỉ hỗ trợ http (ntn_) ở đây; nếu bạn dùng secret_, có thể nhánh SDK.
+    if mode != "http":
+        print("[Notion] Bạn đang dùng secret_; nhánh HTTP này dành cho ntn_.")
+        return
+
+    # Preflight – tránh đợi timeout vô ích
+    # 👉 Preflight: có thể BỎ QUA nếu FORCE_PUSH_NOTION=1
+    force_push = os.getenv("FORCE_PUSH_NOTION", "0") == "1"
+    if not force_push and not ntn_ok(base):
+        if not _notion_warned_once:
+            print("[Notion] Gateway hiện không reachable → bỏ qua lần này.")
+            _notion_warned_once = True
+        return
+    else:
+        if force_push:
+            print("[Notion] FORCE: bỏ qua preflight, thử push trực tiếp...")
+
+
+    # Build payload theo schema thực tế
     try:
-        client.pages.create(
-            parent={"database_id": dbid},
-            properties={
-                "Question": {"rich_text": _rt(q)},
-                "Answer":   {"rich_text": _rt(a)},
-                "Approved": {"checkbox": False},
-                "Language": {"select": {"name": "Tiếng Việt"}},
-            },
-        )
-        # dùng properties theo đúng schema DB của bạn
+        payload = _build_dynamic_payload_force(dbid, q, a)
     except Exception as e:
-        print(f"⚠️ Lỗi khi tạo page Notion: {e}")
+        print(f"[Notion] Build payload error: {e}")
+        return
+
+    ok, status, body = _http_create_page(token, base, payload, timeout_s=15.0)
+    if ok:
+        print(f"[Notion] OK ({status})")
+    else:
+        # In body đầy đủ để thấy lỗi thật (property nào sai type/tên/option)
+        print(f"[Notion] FAIL ({status})\n{body[:2000]}")
+
+
+def _ntn_session():
+    s = requests.Session()
+    retry = Retry(
+        total=1,               # chỉ 1 lần retry nhẹ để không chờ lâu
+        backoff_factor=0.4,
+        status_forcelist=[429,500,502,503,504],
+        allowed_methods=["POST", "HEAD"],
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    s.mount("http://", HTTPAdapter(max_retries=retry))
+    return s
+# ============== Ollama append (an toàn) ==============
+def sanitize_vi(extra: str) -> str:
+    if not extra: return ""
+    extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
+    extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
+    extra = extra.replace('“','').replace('”','').replace('"','').strip()
+    extra = re.sub(r'\s+', ' ', extra)
+    banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
+    if extra.lower().startswith(banned_starts): return ""
+    if len(extra.split()) < 3: return ""
+    return extra
+
 def ollama_generate_append(base_reply: str, user_message: str) -> str:
-    """
-    Gọi Ollama để VIẾT THÊM 1–3 câu tiếng Việt, bám ngữ cảnh thư viện.
-    Không thay thế nội dung chính; tránh bịa và KHÔNG mâu thuẫn dữ kiện có sẵn.
-    Trả về chuỗi bổ sung hoặc "" nếu lỗi/không có gì.
-    """
     if not ENABLE_OLLAMA_APPEND:
         return ""
-
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
     system_prompt = (
         "Bạn là trợ lý THƯ VIỆN Trường Đại học Tây Nguyên (DHTN).\n"
         "- Chỉ BỔ SUNG 1–2 câu, ngắn gọn, bám CÂU TRẢ LỜI GỐC.\n"
         "- Chỉ nói về: giờ mở/đóng, mượn–trả, thẻ thư viện, quy định, phí phạt, tra cứu, khu sách, liên hệ.\n"
         "- Nếu không chắc liên quan thư viện: TRẢ VỀ CHUỖI RỖNG.\n"
         "- KHÔNG bịa, KHÔNG quảng cáo, KHÔNG trả lời câu cá nhân/ngoài phạm vi.\n"
-        "- Chỉ TIẾNG VIỆT. KHÔNG chuyển ngôn ngữ khác.\n"
-        "- KHÔNG chào hỏi xã giao, KHÔNG dùng ngoặc kép, KHÔNG cảm thán."
+        "- Chỉ TIẾNG VIỆT."
     )
-
-
-    # Dùng /api/generate của Ollama (đơn giản, latency thấp)
-    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
     payload = {
-    "model": OLLAMA_MODEL,
-    "prompt": f"{system_prompt}\n\nNgười dùng: {user_message}\nCâu trả lời gốc:\n{base_reply}\n\nYêu cầu: Bổ sung 1–2 câu. Nếu không phù hợp, trả về trống.",
-    "stream": False,
-    "options": {
-        "temperature": 0.1,          # bớt bay
-        "top_p": 0.9,
-        "repeat_penalty": 1.2,       # hạn chế lặp
-        "num_predict": 80,           # ngắn gọn
-        "stop": ["\n\n", "\"", "”", "“"]  # chặn xuống dòng dài, ngoặc kép
+        "model": OLLAMA_MODEL,
+        "prompt": f"{system_prompt}\n\nNgười dùng: {user_message}\nCâu trả lời gốc:\n{base_reply}\n\nYêu cầu: Bổ sung 1–2 câu. Nếu không phù hợp, trả về trống.",
+        "stream": False,
+        "options": {
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "repeat_penalty": 1.2,
+            "num_predict": 80,
+            "stop": ["\n\n", "\"", "”", "“"]
+        }
     }
-}
+    for attempt in range(2):  # thử 2 lần
+        try:
+            r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+            if r.status_code != 200:
+                print(f"[Ollama] HTTP {r.status_code}: {r.text[:200]}")
+                continue
+            data = r.json()
+            extra = (data.get("response") or "").strip()
+            if not extra:
+                return ""
+            if extra in base_reply:
+                return ""
+            sentences = [s.strip() for s in extra.replace("\n", " ").split(".") if s.strip()]
+            if not sentences:
+                return ""
+            extra_short = ". ".join(sentences[:3]).strip()
+            if extra_short and not extra_short.endswith("."):
+                extra_short += "."
+            extra_short = sanitize_vi(extra_short)
+            return extra_short or ""
+        except requests.exceptions.ReadTimeout:
+            print("[Ollama] Read timeout, thử lại...")
+        except Exception as e:
+            print(f"[Ollama] Lỗi kết nối/xử lý: {e}")
+            break
+    return ""
 
+# ============== CLI ==============
+def _test_push_notion_once():
+    token, dbid, mode, base = _resolve_notion_env()
+    tok_prefix = (token.split("_",1)[0]+"_") if "_" in token else token[:6]
+    print("[TEST] mode:", mode, "| dbid:", dbid, "| base:", base, "| token_prefix:", tok_prefix)
+
+    # Test /status (Cloudflare/Notion)
     try:
-        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-        if r.status_code != 200:
-            print(f"[Ollama] HTTP {r.status_code}: {r.text[:200]}")
-            return ""
-        data = r.json()  # {"model": "...", "created_at": "...", "response": "...", ...}
-        extra = (data.get("response") or "").strip()
-        # Lọc bớt mô tả thừa
-        if not extra:
-            return ""
-        # Chặn việc lặp lại y nguyên reply chính
-        if extra in base_reply:
-            return ""
-        # Rút gọn 1–3 câu (phòng trường hợp model viết dài)
-        # Tách theo dấu chấm. Nếu thấy xuống dòng, ghép lại.
-        sentences = [s.strip() for s in extra.replace("\n", " ").split(".") if s.strip()]
-        if not sentences:
-            return ""
-        extra_short = ". ".join(sentences[:3]).strip()
-        if extra_short and not extra_short.endswith("."):
-            extra_short += "."
-        extra_short = sanitize_vi(extra_short)
-        if not extra_short:
-            return ""
-        return extra_short
-    except requests.RequestException as e:
-        print(f"[Ollama] Lỗi kết nối: {e}")
-        return ""
+        r = requests.get("https://api.notion.com/v1/status", timeout=6)
+        print("[TEST] status api.notion.com:", r.status_code)
     except Exception as e:
-        print(f"[Ollama] Lỗi xử lý: {e}")
-        return ""
-import re
+        print("[TEST] status error:", e)
 
-def sanitize_vi(extra: str) -> str:
-    if not extra: return ""
-    # bỏ ký tự CJK/emoji
-    extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
-    extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
-    # bỏ ngoặc kép + khoảng trắng thừa
-    extra = extra.replace('“','').replace('”','').replace('"','').strip()
-    extra = re.sub(r'\s+', ' ', extra)
-    # bỏ câu chào/ xã giao
-    banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
-    if extra.lower().startswith(banned_starts): return ""
-    # quá ngắn/ vô nghĩa
-    if len(extra.split()) < 3: return ""
-    return extra
+    if not token or not dbid:
+        print("[TEST] Thiếu token/dbid")
+        return
 
-# =========================
-# CLI chỉ chạy khi gọi trực tiếp file
-# =========================
+    # Tạo payload động đúng schema thực tế của database
+    q = "Ping từ script"
+    a = "Nếu thấy page này là OK."
+    try:
+        payload = _build_dynamic_payload(token, base, dbid, q, a)
+    except Exception as e:
+        print(f"[TEST] Build payload error:", e)
+        return
+
+    ok, code, body = _http_create_page(token, base, payload, timeout_s=15.0)
+    print(f"[TEST] POST {base}/pages →", code, (body[:200] if isinstance(body, str) else body))
+
+
+
 if __name__ == "__main__":
     print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
     conn = ensure_main_db()
     cur  = conn.cursor()
+    #_test_push_notion_once()
     try:
         while True:
             sentence = input("Bạn: ").strip()
