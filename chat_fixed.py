@@ -1,4 +1,4 @@
-import os, random, json, sqlite3, datetime, re, time
+import os, random, json, sqlite3, re, time
 # chat_fixed.py
 import numpy as np
 import torch, requests
@@ -12,6 +12,9 @@ from typing import Optional, List, Dict
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import socket
+from datetime import datetime
+
+
 
 # ============== CẤU HÌNH ==============
 ENV_PATH = r"D:\HTML\a\rag\.env"
@@ -35,7 +38,7 @@ _notion_warned_once = False  # chỉ cảnh báo 1 lần khi lỗi HTTP push
 # Ollama (có thể tắt nếu lỗi mạng)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "20"))
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60"))
 ENABLE_OLLAMA_APPEND = os.getenv("ENABLE_OLLAMA_APPEND", "true").lower() != "false"
 MAX_OLLAMA_APPEND_TOKENS = 150
 
@@ -130,7 +133,8 @@ except Exception:
     state_mgr = StateManager()
 
 def _now():
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 # ============== FAQ / Inventory ==============
 def get_faq_response(sentence: str) -> Optional[str]:
@@ -254,6 +258,49 @@ def _dns_ok(host: str, timeout_s: float = 3.0) -> bool:
         return True
     except Exception:
         return False
+def pull_approved_from_notion_to_sqlite():
+    token, dbid, mode, base = _resolve_notion_env()
+    url = f"{base.rstrip('/')}/databases/{dbid}/query"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": os.getenv("NOTION_VERSION", "2022-06-28"),
+        "Content-Type": "application/json",
+    }
+    body = {
+        "filter": {
+            "and": [
+                {"property": "Approved", "checkbox": {"equals": True}},
+                # Nếu bạn tạo thêm cột "Synced" (checkbox) trong Notion:
+                # {"property": "Synced", "checkbox": {"equals": False}},
+            ]
+        }
+    }
+    r = requests.post(url, headers=headers, json=body, timeout=12)
+    r.raise_for_status()
+    data = r.json()
+
+    conn = ensure_main_db()
+    cur = conn.cursor()
+
+    for row in data.get("results", []):
+        props = row.get("properties", {})
+        q = props.get("Question", {}).get("rich_text", [{}])[0].get("plain_text", "")
+        a = props.get("Answer", {}).get("rich_text", [{}])[0].get("plain_text", "")
+
+        # lưu vào SQLite (ví dụ conversations hay bảng riêng)
+        cur.execute(
+            "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
+            (q, a, None, 1.0, _now()),
+        )
+        # Đánh dấu đã sync nếu bạn có cột Synced trong Notion:
+        # page_id = row["id"]
+        # requests.patch(f"{base.rstrip('/')}/pages/{page_id}",
+        #    headers={**headers, "Content-Type": "application/json"},
+        #    json={"properties": {"Synced": {"checkbox": True}}})
+
+    conn.commit()
+    conn.close()
+
 # ============== Notion helpers (ntn_ token, auto-mapping) ==============
 from functools import lru_cache
 
@@ -414,21 +461,27 @@ def _ensure_select_option(token: str, base: str, dbid: str, prop_name: str, opti
         print(f"[Notion] WARN: add select option error: {e}")
         return option_name
 
+
 def _build_dynamic_payload_force(dbid: str, q: str, a: str) -> dict:
-    # BẮT BUỘC có 'Tên' (title). Không dùng select để tránh lỗi option.
     title_txt = (q or "Câu hỏi").strip()[:200]
-    return {
-        "parent": {"database_id": dbid},
-        "properties": {
-            "Tên": {"title": [{"type": "text", "text": {"content": title_txt}}]},
-            "Question": {"rich_text": [{"type": "text", "text": {"content": q or ""}}]},
-            "Answer":   {"rich_text": [{"type": "text", "text": {"content": a or ""}}]},
-            # BỎ 'Category', 'Language' để tránh lỗi select option
-            # "Approved" để False nếu cột tồn tại (checkbox không cần option)
-            "Approved": {"checkbox": False}
-        }
+    today_iso = datetime.now().date().isoformat()
+
+    props = {
+        "Question": {"rich_text": [{"type": "text", "text": {"content": q or ""}}]},
+        "Answer":   {"rich_text": [{"type": "text", "text": {"content": a or ""}}]},
+        # Cho item xuất hiện ngay ở view chính:
+        "Approved": {"checkbox": True},  # <-- bật nếu view đang lọc Approved = checked
+        "Language": {"select": {"name": "Tiếng Việt"}},  # <-- khớp filter Language
+        "Last Update": {"date": {"start": today_iso}},
     }
 
+    # Nếu bảng của bạn BẮT BUỘC có Category để vào view, set thêm 1 value hợp lệ:
+    # props["Category"] = {"select": {"name": "Quy định"}}
+
+    return {
+        "parent": {"database_id": dbid},
+        "properties": props,
+    }
 
 
 
@@ -503,57 +556,84 @@ def sanitize_vi(extra: str) -> str:
     if extra.lower().startswith(banned_starts): return ""
     if len(extra.split()) < 3: return ""
     return extra
+def get_recent_history(limit=6):
+    """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT user_message, bot_reply, time
+            FROM conversations
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        conn.close()
+        # đảo lại cho thành cũ → mới
+        rows.reverse()
+        return rows
+    except Exception:
+        return []
 
-def ollama_generate_append(base_reply: str, user_message: str) -> str:
-    if not ENABLE_OLLAMA_APPEND:
-        return ""
+def ollama_generate_continuation(base_reply: str, user_message: str, max_sentences=3) -> str:
     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    history = get_recent_history(limit=8)
+
+    # Ghép lịch sử: Q/A ngắn gọn
+    hist_lines = []
+    for q, a, t in history:
+        q = (q or "").strip()
+        a = (a or "").strip()
+        if q or a:
+            hist_lines.append(f"- User: {q}")
+            hist_lines.append(f"  Bot: {a}")
+    hist_block = "\n".join(hist_lines[-14:])  # tránh dài quá
+
     system_prompt = (
-        "Bạn là trợ lý THƯ VIỆN Trường Đại học Tây Nguyên (DHTN).\n"
-        "- Chỉ BỔ SUNG 1–2 câu, ngắn gọn, bám CÂU TRẢ LỜI GỐC.\n"
-        "- Chỉ nói về: giờ mở/đóng, mượn–trả, thẻ thư viện, quy định, phí phạt, tra cứu, khu sách, liên hệ.\n"
-        "- Nếu không chắc liên quan thư viện: TRẢ VỀ CHUỖI RỖNG.\n"
-        "- KHÔNG bịa, KHÔNG quảng cáo, KHÔNG trả lời câu cá nhân/ngoài phạm vi.\n"
-        "- Chỉ TIẾNG VIỆT."
+        "Bạn là trợ lý thư viện DHTN. Dựa vào lịch sử hội thoại dưới đây, "
+        "hãy VIẾT TIẾP phần trả lời cho mượt mà, chỉ thêm ý bổ sung hợp lý, "
+        "KHÔNG lặp lại nguyên văn, KHÔNG mở chủ đề mới, KHÔNG bịa số liệu. "
+        "Nếu lịch sử không giúp ích, trả về chuỗi RỖNG.\n"
+        "Giới hạn 1–3 câu ngắn. Chỉ tiếng Việt."
     )
+
+    user_prompt = (
+        f"Lịch sử gần đây:\n{hist_block}\n\n"
+        f"Câu trả lời hiện tại của bot:\n{base_reply}\n\n"
+        f"Người dùng vừa hỏi:\n{user_message}\n\n"
+        f"YÊU CẦU: Viết tiếp ngắn gọn (1–3 câu) bổ sung ý dựa trên lịch sử. "
+        f"Nếu không phù hợp, trả về rỗng."
+    )
+
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": f"{system_prompt}\n\nNgười dùng: {user_message}\nCâu trả lời gốc:\n{base_reply}\n\nYêu cầu: Bổ sung 1–2 câu. Nếu không phù hợp, trả về trống.",
+        "prompt": f"{system_prompt}\n\n{user_prompt}",
         "stream": False,
         "options": {
-            "temperature": 0.1,
+            "temperature": 0.2,
             "top_p": 0.9,
-            "repeat_penalty": 1.2,
-            "num_predict": 80,
-            "stop": ["\n\n", "\"", "”", "“"]
+            "repeat_penalty": 1.15,
+            "num_predict": 120
         }
     }
-    for attempt in range(2):  # thử 2 lần
-        try:
-            r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-            if r.status_code != 200:
-                print(f"[Ollama] HTTP {r.status_code}: {r.text[:200]}")
-                continue
-            data = r.json()
-            extra = (data.get("response") or "").strip()
-            if not extra:
-                return ""
-            if extra in base_reply:
-                return ""
-            sentences = [s.strip() for s in extra.replace("\n", " ").split(".") if s.strip()]
-            if not sentences:
-                return ""
-            extra_short = ". ".join(sentences[:3]).strip()
-            if extra_short and not extra_short.endswith("."):
-                extra_short += "."
-            extra_short = sanitize_vi(extra_short)
-            return extra_short or ""
-        except requests.exceptions.ReadTimeout:
-            print("[Ollama] Read timeout, thử lại...")
-        except Exception as e:
-            print(f"[Ollama] Lỗi kết nối/xử lý: {e}")
-            break
-    return ""
+
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        if r.status_code != 200:
+            print(f"[Ollama-continue] HTTP {r.status_code}: {r.text[:200]}")
+            return ""
+        extra = (r.json().get("response") or "").strip()
+        # làm sạch ngắn gọn
+        extra = re.sub(r'\s+', ' ', extra)
+        if not extra or extra.lower() in ("", "rỗng", "(rỗng)"):
+            return ""
+        # cắt tối đa 3 câu
+        sentences = [s.strip() for s in re.split(r'[.!?…]+', extra) if s.strip()]
+        extra_short = ". ".join(sentences[:max_sentences]).strip()
+        return (extra_short + ".") if extra_short and not extra_short.endswith(".") else extra_short
+    except Exception as e:
+        print("[Ollama-continue] Error:", e)
+        return ""
 
 # ============== CLI ==============
 def _test_push_notion_once():
@@ -576,7 +656,7 @@ def _test_push_notion_once():
     q = "Ping từ script"
     a = "Nếu thấy page này là OK."
     try:
-        payload = _build_dynamic_payload(token, base, dbid, q, a)
+        payload = _build_dynamic_payload_force(token, base, dbid, q, a)
     except Exception as e:
         print(f"[TEST] Build payload error:", e)
         return
