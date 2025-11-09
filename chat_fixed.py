@@ -41,7 +41,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2:1.5b")
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60"))
 ENABLE_OLLAMA_APPEND = os.getenv("ENABLE_OLLAMA_APPEND", "true").lower() != "false"
 MAX_OLLAMA_APPEND_TOKENS = 150
-
+print("[Ollama] URL:", OLLAMA_URL, "| model:", OLLAMA_MODEL, "| timeout:", OLLAMA_TIMEOUT)
 FAQ_API_URL = "http://localhost:8000/search"
 INVENTORY_API_URL = "http://localhost:8000/inventory"
 
@@ -192,7 +192,17 @@ def get_inventory_response(sentence: str) -> Optional[str]:
         print(f"[Inventory] Lỗi xử lý dữ liệu: {e}")
         return None
 
+
+
 # ============== CORE chat ==============
+
+def ollama_alive() -> bool:
+    try:
+        r = requests.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
+        
 def process_message(sentence: str) -> str:
     sentence = (sentence or "").strip()
     if not sentence:
@@ -206,18 +216,10 @@ def process_message(sentence: str) -> str:
     # ví dụ: chưa có ý tưởng → trả lời mặc định
     if reply is None or not reply.strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
-
-    # 2) Ollama append (không chặn luồng)
-    if ENABLE_OLLAMA_APPEND and reply.strip():
-        base_reply = reply
-        try:
-            extra = ollama_generate_append(base_reply, sentence)
-            if extra and extra.strip() and extra.strip() not in base_reply:
-                reply = f"{base_reply.strip()} {extra.strip()}"
-            else:
-                reply = base_reply
-        except Exception:
-            reply = base_reply
+    if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
+        extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
+        if extra:
+            reply = f"{reply.strip()} {extra.strip()}"
 
     # 3) Ghi SQLite trước
     conn = ensure_main_db()
