@@ -54,7 +54,8 @@ def lay_du_lieu_notion():
         "filter": {
             "and": [
                 {"property": "Question", "rich_text": {"is_not_empty": True}},
-                {"property": "Answer", "rich_text": {"is_not_empty": True}}
+                {"property": "Answer", "rich_text": {"is_not_empty": True}},
+                {"property": "Approved", "checkbox": {"equals": True}}
             ]
         }
     }
