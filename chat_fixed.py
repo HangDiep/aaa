@@ -17,14 +17,14 @@ from datetime import datetime
 
 
 # ============== CẤU HÌNH ==============
-ENV_PATH = r
-
+ENV_PATH = r"D:\HTML\a\rag\.env"
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)
+        # Sau load_dotenv:
 except Exception:
     pass
-"D:\HTML\a\rag\.env"
+
 print("=== DEBUG ENV CHECK ===")
 print("ENV_PATH =", ENV_PATH, "| exists:", os.path.exists(ENV_PATH))
 print("NOTION_API_KEY =", os.getenv("NOTION_API_KEY"))
@@ -50,7 +50,7 @@ CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
 print(f"[ChatDB] Using: {CHAT_DB_PATH}")
 DB_PATH = CHAT_DB_PATH
 
-FAQ_DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
+FAQ_DB_PATH = os.path.join(BASE_DIR, "faq.db")
 CONF_THRESHOLD = 0.60
 LOG_ALL_QUESTIONS = True
 
@@ -524,6 +524,7 @@ def push_to_notion(q: str, a: str):
     # Build payload theo schema thực tế
     try:
         payload = _build_dynamic_payload_force(dbid, q, a)
+
     except Exception as e:
         print(f"[Notion] Build payload error: {e}")
         return
@@ -658,7 +659,7 @@ def _test_push_notion_once():
     q = "Ping từ script"
     a = "Nếu thấy page này là OK."
     try:
-        payload = _build_dynamic_payload_force(token, base, dbid, q, a)
+        payload = _build_dynamic_payload_force(dbid, q, a) 
     except Exception as e:
         print(f"[TEST] Build payload error:", e)
         return
