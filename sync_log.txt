@@ -1,105 +1,42 @@
-=== [Mon 11/10/2025 13:08:55.92] Bắt đầu đồng bộ... 
-[sync] OK: 24 rows
-=== [Mon 11/10/2025 13:08:57.66] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:11:06.75] Bắt đầu đồng bộ... 
-[sync] OK: 24 rows
-=== [Mon 11/10/2025 13:11:07.83] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:11:09.07] Bắt đầu đồng bộ... 
-[sync] OK: 24 rows
-=== [Mon 11/10/2025 13:11:10.75] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:56:45.93] Bắt đầu đồng bộ... 
-[sync] FAQ: 25 rows
-Traceback (most recent call last):
-  File "D:\HTML\a\sync_faq.py", line 145, in <module>
-    sync_books()
-    ~~~~~~~~~~^^
-  File "D:\HTML\a\sync_faq.py", line 100, in sync_books
-    rows = _query(DB_BOOKS, {"page_size":100})
-  File "D:\HTML\a\sync_faq.py", line 43, in _query
-    r.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~^^
-  File "C:\Miniconda3\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
-    raise HTTPError(http_error_msg, response=self)
-requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.notion.com/v1/databases/2a4db606cea88084bc78deecb4b942ee/query
-=== [Mon 11/10/2025 13:56:47.65] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:56:47.78] Bắt đầu đồng bộ... 
-[sync] FAQ: 25 rows
-Traceback (most recent call last):
-  File "D:\HTML\a\sync_faq.py", line 145, in <module>
-    sync_books()
-    ~~~~~~~~~~^^
-  File "D:\HTML\a\sync_faq.py", line 100, in sync_books
-    rows = _query(DB_BOOKS, {"page_size":100})
-  File "D:\HTML\a\sync_faq.py", line 43, in _query
-    r.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~^^
-  File "C:\Miniconda3\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
-    raise HTTPError(http_error_msg, response=self)
-requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.notion.com/v1/databases/2a4db606cea88084bc78deecb4b942ee/query
-=== [Mon 11/10/2025 13:56:49.09] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:56:50.71] Bắt đầu đồng bộ... 
-[sync] FAQ: 25 rows
-Traceback (most recent call last):
-  File "D:\HTML\a\sync_faq.py", line 145, in <module>
-    sync_books()
-    ~~~~~~~~~~^^
-  File "D:\HTML\a\sync_faq.py", line 100, in sync_books
-    rows = _query(DB_BOOKS, {"page_size":100})
-  File "D:\HTML\a\sync_faq.py", line 43, in _query
-    r.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~^^
-  File "C:\Miniconda3\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
-    raise HTTPError(http_error_msg, response=self)
-requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.notion.com/v1/databases/2a4db606cea88084bc78deecb4b942ee/query
-=== [Mon 11/10/2025 13:56:52.36] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:56:55.62] Bắt đầu đồng bộ... 
-[sync] FAQ: 25 rows
-Traceback (most recent call last):
-  File "D:\HTML\a\sync_faq.py", line 145, in <module>
-    sync_books()
-    ~~~~~~~~~~^^
-  File "D:\HTML\a\sync_faq.py", line 100, in sync_books
-    rows = _query(DB_BOOKS, {"page_size":100})
-  File "D:\HTML\a\sync_faq.py", line 43, in _query
-    r.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~^^
-  File "C:\Miniconda3\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
-    raise HTTPError(http_error_msg, response=self)
-requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.notion.com/v1/databases/2a4db606cea88084bc78deecb4b942ee/query
-=== [Mon 11/10/2025 13:56:57.06] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 13:57:15.74] Bắt đầu đồng bộ... 
-[sync] FAQ: 25 rows
-Traceback (most recent call last):
-  File "D:\HTML\a\sync_faq.py", line 145, in <module>
-    sync_books()
-    ~~~~~~~~~~^^
-  File "D:\HTML\a\sync_faq.py", line 100, in sync_books
-    rows = _query(DB_BOOKS, {"page_size":100})
-  File "D:\HTML\a\sync_faq.py", line 43, in _query
-    r.raise_for_status()
-    ~~~~~~~~~~~~~~~~~~^^
-  File "C:\Miniconda3\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
-    raise HTTPError(http_error_msg, response=self)
-requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.notion.com/v1/databases/2a4db606cea88084bc78deecb4b942ee/query
-=== [Mon 11/10/2025 13:57:17.09] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 16:17:41.11] Bắt đầu đồng bộ... 
-[sync] MAJORS: 38 rows
-[sync] FAQ: 25 rows
+[START Mon 11/10/2025 20:15:43.01] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
 [sync] BOOKS: syncing...
-[sync] BOOKS: +0 insert, ~110 update, total_notions=120
 [sync] DONE
-=== [Mon 11/10/2025 16:17:44.06] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 16:18:54.83] Bắt đầu đồng bộ... 
-[sync] MAJORS: 38 rows
-[sync] FAQ: 25 rows
+[END   Mon 11/10/2025 20:15:47.71] 
+[START Mon 11/10/2025 20:20:36.58] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
 [sync] BOOKS: syncing...
-[sync] BOOKS: +0 insert, ~110 update, total_notions=120
 [sync] DONE
-=== [Mon 11/10/2025 16:18:58.03] Kết thúc đồng bộ === 
-=== [Mon 11/10/2025 16:22:04.57] Bắt đầu đồng bộ... 
-[sync] MAJORS: 38 rows
-[sync] FAQ: 25 rows
+[END   Mon 11/10/2025 20:20:40.81] 
+[START Mon 11/10/2025 20:27:17.85] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
 [sync] BOOKS: syncing...
-[sync] BOOKS: +0 insert, ~110 update, total_notions=120
 [sync] DONE
-=== [Mon 11/10/2025 16:22:07.33] Kết thúc đồng bộ === 
+[END   Mon 11/10/2025 20:27:21.11] 
+[START Mon 11/10/2025 20:32:10.18] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:32:13.40] 
+[START Mon 11/10/2025 20:37:10.67] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:37:13.64] 
+[START Mon 11/10/2025 20:42:10.73] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:42:13.98] 
+[START Mon 11/10/2025 20:47:10.88] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:47:14.29] 

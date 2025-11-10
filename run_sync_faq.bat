@@ -1,12 +1,14 @@
 @echo off
-set PYEXE=C:\Miniconda3\python.exe   
-set WORKDIR=D:\HTML\a
-cd /d %WORKDIR%
-%PYEXE% sync_faq.py
+setlocal
+rem ===== timestamp vào log để biết có chạy hay không =====
+echo [START %date% %time%] >> D:\HTML\a\sync_log.txt
 
+rem --- đường dẫn Python & script ---
+set "PYEXE=C:\Miniconda3\python.exe"
+set "SCRIPT=D:\HTML\a\sync_faq.py"
 
+rem --- chạy và ghi cả stdout + stderr vào log ---
+"%PYEXE%" "%SCRIPT%"  >> D:\HTML\a\sync_log.txt 2>&1
 
-echo === [%date% %time%] Bắt đầu đồng bộ... >> sync_log.txt
-"%PYEXE%" sync_faq.py >> sync_log.txt 2>&1
-echo === [%date% %time%] Kết thúc đồng bộ === >> sync_log.txt
-exit
+echo [END   %date% %time%] >> D:\HTML\a\sync_log.txt
+endlocal

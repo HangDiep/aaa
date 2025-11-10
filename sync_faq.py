@@ -18,6 +18,7 @@ else:
 TOKEN = os.getenv("NOTION_TOKEN") or os.getenv("NOTION_API_KEY") or ""
 BASE  = (os.getenv("NOTION_BASE_URL") or "https://api.notion.com/v1").rstrip("/")
 NV    = os.getenv("NOTION_VERSION", "2022-06-28")
+BOOKS_CHECKBOX = os.getenv("BOOKS_CHECKBOX", "Đồng bộ")
 
 DB_FAQ    = os.getenv("DATABASE_ID_FAQ")     # 2a5db606...
 DB_BOOKS  = os.getenv("DATABASE_ID_BOOKS")   # 2a4db606...
@@ -303,7 +304,17 @@ def sync_books():
         return
 
     print("[sync] BOOKS: syncing...")
-    rows = _query(DB_BOOKS, {"page_size": 100})
+    rows = _query(DB_BOOKS, {
+    "filter": {
+        "and": [
+            {"property": "Tên sách", "title": {"is_not_empty": True}},
+            {"property": "Approved", "checkbox": {"equals": True}}
+        ]
+    },
+    "page_size": 100
+})
+
+
     total_notions = len(rows)
 
     conn = sqlite3.connect(DB_PATH)
@@ -366,12 +377,10 @@ def sync_books():
     notion_ids = [r.get("id") for r in rows if r.get("id")]
     if notion_ids:
         placeholders = ",".join(["?"] * len(notion_ids))
-        c.execute(f"""
-            DELETE FROM books
-            WHERE notion_id NOT IN ({placeholders})
-        """, notion_ids)
+        c.execute(f"DELETE FROM books WHERE notion_id NOT IN ({placeholders})", notion_ids)
     else:
-        print("[sync] BOOKS: Notion trả về 0 dòng – bỏ qua bước xoá.")
+        print("[sync] BOOKS: Notion (Approved filter) trả 0 dòng – skip xoá để an toàn.")
+
 
     conn.commit(); conn.close()
 
