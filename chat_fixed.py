@@ -17,14 +17,14 @@ from datetime import datetime
 
 
 # ============== CẤU HÌNH ==============
-ENV_PATH = r"D:\HTML\a\rag\.env"
+ENV_PATH = r
 
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)
 except Exception:
     pass
-
+"D:\HTML\a\rag\.env"
 print("=== DEBUG ENV CHECK ===")
 print("ENV_PATH =", ENV_PATH, "| exists:", os.path.exists(ENV_PATH))
 print("NOTION_API_KEY =", os.getenv("NOTION_API_KEY"))
