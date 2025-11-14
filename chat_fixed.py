@@ -549,123 +549,123 @@ def _ntn_session():
     s.mount("http://", HTTPAdapter(max_retries=retry))
     return s
 # ============== Ollama append (an toàn) ==============
-def sanitize_vi(extra: str) -> str:
-    if not extra: return ""
-    extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
-    extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
-    extra = extra.replace('“','').replace('”','').replace('"','').strip()
-    extra = re.sub(r'\s+', ' ', extra)
-    banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
-    if extra.lower().startswith(banned_starts): return ""
-    if len(extra.split()) < 3: return ""
-    return extra
-def get_recent_history(limit=6):
-    """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT user_message, bot_reply, time
-            FROM conversations
-            ORDER BY id DESC
-            LIMIT ?
-        """, (limit,))
-        rows = cur.fetchall()
-        conn.close()
-        # đảo lại cho thành cũ → mới
-        rows.reverse()
-        return rows
-    except Exception:
-        return []
+# /*def sanitize_vi(extra: str) -> str:
+#     if not extra: return ""
+#     extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
+#     extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
+#     extra = extra.replace('“','').replace('”','').replace('"','').strip()
+#     extra = re.sub(r'\s+', ' ', extra)
+#     banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
+#     if extra.lower().startswith(banned_starts): return ""
+#     if len(extra.split()) < 3: return ""
+#     return extra
+# def get_recent_history(limit=6):
+#     """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
+#     try:
+#         conn = sqlite3.connect(DB_PATH)
+#         cur = conn.cursor()
+#         cur.execute("""
+#             SELECT user_message, bot_reply, time
+#             FROM conversations
+#             ORDER BY id DESC
+#             LIMIT ?
+#         """, (limit,))
+#         rows = cur.fetchall()
+#         conn.close()
+#         # đảo lại cho thành cũ → mới
+#         rows.reverse()
+#         return rows
+#     except Exception:
+#         return []
 
-def ollama_generate_continuation(base_reply: str, user_message: str, max_sentences=3) -> str:
-    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-    history = get_recent_history(limit=8)
+# def ollama_generate_continuation(base_reply: str, user_message: str, max_sentences=3) -> str:
+#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+#     history = get_recent_history(limit=8)
 
-    # Ghép lịch sử: Q/A ngắn gọn
-    hist_lines = []
-    for q, a, t in history:
-        q = (q or "").strip()
-        a = (a or "").strip()
-        if q or a:
-            hist_lines.append(f"- User: {q}")
-            hist_lines.append(f"  Bot: {a}")
-    hist_block = "\n".join(hist_lines[-14:])  # tránh dài quá
+#     # Ghép lịch sử: Q/A ngắn gọn
+#     hist_lines = []
+#     for q, a, t in history:
+#         q = (q or "").strip()
+#         a = (a or "").strip()
+#         if q or a:
+#             hist_lines.append(f"- User: {q}")
+#             hist_lines.append(f"  Bot: {a}")
+#     hist_block = "\n".join(hist_lines[-14:])  # tránh dài quá
 
-    system_prompt = (
-        "Bạn là trợ lý thư viện DHTN. Dựa vào lịch sử hội thoại dưới đây, "
-        "hãy VIẾT TIẾP phần trả lời cho mượt mà, chỉ thêm ý bổ sung hợp lý, "
-        "KHÔNG lặp lại nguyên văn, KHÔNG mở chủ đề mới, KHÔNG bịa số liệu. "
-        "Nếu lịch sử không giúp ích, trả về chuỗi RỖNG.\n"
-        "Giới hạn 1–3 câu ngắn. Chỉ tiếng Việt."
-    )
+#     system_prompt = (
+#         "Bạn là trợ lý thư viện DHTN. Dựa vào lịch sử hội thoại dưới đây, "
+#         "hãy VIẾT TIẾP phần trả lời cho mượt mà, chỉ thêm ý bổ sung hợp lý, "
+#         "KHÔNG lặp lại nguyên văn, KHÔNG mở chủ đề mới, KHÔNG bịa số liệu. "
+#         "Nếu lịch sử không giúp ích, trả về chuỗi RỖNG.\n"
+#         "Giới hạn 1–3 câu ngắn. Chỉ tiếng Việt."
+#     )
 
-    user_prompt = (
-        f"Lịch sử gần đây:\n{hist_block}\n\n"
-        f"Câu trả lời hiện tại của bot:\n{base_reply}\n\n"
-        f"Người dùng vừa hỏi:\n{user_message}\n\n"
-        f"YÊU CẦU: Viết tiếp ngắn gọn (1–3 câu) bổ sung ý dựa trên lịch sử. "
-        f"Nếu không phù hợp, trả về rỗng."
-    )
+#     user_prompt = (
+#         f"Lịch sử gần đây:\n{hist_block}\n\n"
+#         f"Câu trả lời hiện tại của bot:\n{base_reply}\n\n"
+#         f"Người dùng vừa hỏi:\n{user_message}\n\n"
+#         f"YÊU CẦU: Viết tiếp ngắn gọn (1–3 câu) bổ sung ý dựa trên lịch sử. "
+#         f"Nếu không phù hợp, trả về rỗng."
+#     )
 
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": f"{system_prompt}\n\n{user_prompt}",
-        "stream": False,
-        "options": {
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "repeat_penalty": 1.15,
-            "num_predict": 120
-        }
-    }
+#     payload = {
+#         "model": OLLAMA_MODEL,
+#         "prompt": f"{system_prompt}\n\n{user_prompt}",
+#         "stream": False,
+#         "options": {
+#             "temperature": 0.2,
+#             "top_p": 0.9,
+#             "repeat_penalty": 1.15,
+#             "num_predict": 120
+#         }
+#     }
 
-    try:
-        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-        if r.status_code != 200:
-            print(f"[Ollama-continue] HTTP {r.status_code}: {r.text[:200]}")
-            return ""
-        extra = (r.json().get("response") or "").strip()
-        # làm sạch ngắn gọn
-        extra = re.sub(r'\s+', ' ', extra)
-        if not extra or extra.lower() in ("", "rỗng", "(rỗng)"):
-            return ""
-        # cắt tối đa 3 câu
-        sentences = [s.strip() for s in re.split(r'[.!?…]+', extra) if s.strip()]
-        extra_short = ". ".join(sentences[:max_sentences]).strip()
-        return (extra_short + ".") if extra_short and not extra_short.endswith(".") else extra_short
-    except Exception as e:
-        print("[Ollama-continue] Error:", e)
-        return ""
+#     try:
+#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+#         if r.status_code != 200:
+#             print(f"[Ollama-continue] HTTP {r.status_code}: {r.text[:200]}")
+#             return ""
+#         extra = (r.json().get("response") or "").strip()
+#         # làm sạch ngắn gọn
+#         extra = re.sub(r'\s+', ' ', extra)
+#         if not extra or extra.lower() in ("", "rỗng", "(rỗng)"):
+#             return ""
+#         # cắt tối đa 3 câu
+#         sentences = [s.strip() for s in re.split(r'[.!?…]+', extra) if s.strip()]
+#         extra_short = ". ".join(sentences[:max_sentences]).strip()
+#         return (extra_short + ".") if extra_short and not extra_short.endswith(".") else extra_short
+#     except Exception as e:
+#         print("[Ollama-continue] Error:", e)
+#         return ""
 
-# ============== CLI ==============
-def _test_push_notion_once():
-    token, dbid, mode, base = _resolve_notion_env()
-    tok_prefix = (token.split("_",1)[0]+"_") if "_" in token else token[:6]
-    print("[TEST] mode:", mode, "| dbid:", dbid, "| base:", base, "| token_prefix:", tok_prefix)
+# # ============== CLI ==============
+# def _test_push_notion_once():
+#     token, dbid, mode, base = _resolve_notion_env()
+#     tok_prefix = (token.split("_",1)[0]+"_") if "_" in token else token[:6]
+#     print("[TEST] mode:", mode, "| dbid:", dbid, "| base:", base, "| token_prefix:", tok_prefix)
 
-    # Test /status (Cloudflare/Notion)
-    try:
-        r = requests.get("https://api.notion.com/v1/status", timeout=6)
-        print("[TEST] status api.notion.com:", r.status_code)
-    except Exception as e:
-        print("[TEST] status error:", e)
+#     # Test /status (Cloudflare/Notion)
+#     try:
+#         r = requests.get("https://api.notion.com/v1/status", timeout=6)
+#         print("[TEST] status api.notion.com:", r.status_code)
+#     except Exception as e:
+#         print("[TEST] status error:", e)
 
-    if not token or not dbid:
-        print("[TEST] Thiếu token/dbid")
-        return
+#     if not token or not dbid:
+#         print("[TEST] Thiếu token/dbid")
+#         return
 
-    # Tạo payload động đúng schema thực tế của database
-    q = "Ping từ script"
-    a = "Nếu thấy page này là OK."
-    try:
-        payload = _build_dynamic_payload_force(dbid, q, a) 
-    except Exception as e:
-        print(f"[TEST] Build payload error:", e)
-        return
+#     # Tạo payload động đúng schema thực tế của database
+#     q = "Ping từ script"
+#     a = "Nếu thấy page này là OK."
+#     try:
+#         payload = _build_dynamic_payload_force(dbid, q, a) 
+#     except Exception as e:
+#         print(f"[TEST] Build payload error:", e)
+#         return
 
-    ok, code, body = _http_create_page(token, base, payload, timeout_s=15.0)
-    print(f"[TEST] POST {base}/pages →", code, (body[:200] if isinstance(body, str) else body))
+#     ok, code, body = _http_create_page(token, base, payload, timeout_s=15.0)
+#     print(f"[TEST] POST {base}/pages →", code, (body[:200] if isinstance(body, str) else body))
 
 
 
