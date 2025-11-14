@@ -40,3 +40,80 @@
 [sync] BOOKS: syncing...
 [sync] DONE
 [END   Mon 11/10/2025 20:47:14.29] 
+[START Mon 11/10/2025 20:52:10.73] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:52:14.32] 
+[START Mon 11/10/2025 20:57:10.66] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 20:57:13.87] 
+[START Mon 11/10/2025 21:02:10.69] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 21:02:17.34] 
+[START Mon 11/10/2025 21:07:10.69] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 21:07:13.97] 
+[START Mon 11/10/2025 21:12:10.70] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 21:12:14.12] 
+[START Mon 11/10/2025 21:17:10.69] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 18 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/10/2025 21:17:14.20] 
+[START Mon 11/10/2025 21:22:10.67] 
+[START Tue 11/11/2025 20:32:12.13] 
+^C[START Tue 11/11/2025 21:32:12.57] 
+^C[START Wed 11/12/2025 20:32:11.99] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Wed 11/12/2025 20:32:15.62] 
+[START Wed 11/12/2025 21:32:12.41] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Wed 11/12/2025 21:32:15.54] 
+[START Wed 11/12/2025 22:32:12.42] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Wed 11/12/2025 22:32:17.17] 
+[START Thu 11/13/2025 20:32:11.93] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/13/2025 20:32:16.02] 
+[START Thu 11/13/2025 21:32:12.38] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/13/2025 21:32:15.71] 
+[START Thu 11/13/2025 22:32:12.36] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 17 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/13/2025 22:32:15.97] 
+[START Fri 11/14/2025 20:32:11.36] 
+^C
