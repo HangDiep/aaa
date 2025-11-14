@@ -4,11 +4,12 @@ import sqlite3
 import logging
 import os
 from dotenv import load_dotenv   # THÊM DÒNG NÀY
-load_dotenv()                    # THÊM DÒNG NÀY
+load_dotenv(r"D:\HTML\a\rag\.env")                    # THÊM DÒNG NÀY
 # --- Cấu hình ---
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID_MAJORS")
-DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
+
+DB_PATH = "faq.db"
 if not NOTION_API_KEY or not DATABASE_ID:
     raise ValueError("❌ Thiếu NOTION_API_KEY hoặc DATABASE_ID_MAJORS trong .env")
 # --- Logging ---

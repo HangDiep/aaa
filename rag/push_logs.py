@@ -9,16 +9,10 @@ from notion_client import Client
 # =========================
 # CẤU HÌNH ĐƯỜNG DẪN
 # =========================
-   # nơi có bảng conversations
 
-
-
-ENV_PATH  = r"C:\Users\ADMIN\OneDrive\Desktop\aaa\rag\.env"     # chứa NOTION_TOKEN, NOTION_DATABASE_ID
-CHAT_DB   = r"C:\Users\ADMIN\OneDrive\Desktop\aaa\chat.db"
-
-
-     # nơi có bảng conversations
-
+ENV_PATH = r"D:\HTML\a\rag\.env"
+     # chứa NOTION_TOKEN, NOTION_DATABASE_ID
+CHAT_DB   = r"D:\HTML\a\chat.db"
 # Lưu ý: KHÔNG dùng faqs.db nữa trong script này
 
 # =========================
@@ -113,6 +107,9 @@ def reset_all_sync_flags():
 # =========================
 # MAIN
 # =========================
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Push conversations (Question+Answer) lên Notion.")
     parser.add_argument("--limit", type=int, default=None, help="Giới hạn số dòng cần đẩy")

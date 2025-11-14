@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Library Chatbox</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121a2c; --muted:#8aa1b1; --line:#253145;
+      --bot:#1e293b; --user:#155e75; --accent:#22d3ee; --danger:#ef4444;
+    }
+    
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020 0%,#0f172a 100%);color:#e5eff7;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+    .app{max-width:880px;margin:auto;display:flex;flex-direction:column;height:100%}
+    header{display:flex;gap:12px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+    header .dot{width:10px;height:10px;border-radius:999px;background:var(--accent);box-shadow:0 0 16px var(--accent)}
+    header h1{font-size:18px;margin:0}
+    header .sub{font-size:12px;color:var(--muted)}
+    .toolbar{margin-left:auto;display:flex;gap:8px}
+    .btn{padding:8px 12px;border:1px solid var(--line);background:#0f172a;color:#e5eff7;border-radius:12px;cursor:pointer}
+    .btn:hover{background:#0b1226}
+    .btn-danger{border-color:#3b1f26;background:#1a0f13;color:#ffb4b4}
+    .btn-danger:hover{background:#2a151b}
+    .chat{flex:1;overflow:auto;padding:16px 20px;scroll-behavior:smooth}
+    .empty{opacity:.7;text-align:center;padding:24px;border:1px dashed var(--line);border-radius:16px}
+    .msg{display:flex;gap:10px;margin:14px 0}
+    .msg .avatar{width:34px;height:34px;border-radius:999px;flex:none;display:grid;place-items:center}
+    .msg.user .avatar{background:linear-gradient(135deg,#0ea5e9,#22d3ee)}
+    .msg.bot .avatar{background:linear-gradient(135deg,#10b981,#22d3ee)}
+    .bubble{max-width:72%;padding:12px 14px;border-radius:16px;line-height:1.45;border:1px solid var(--line)}
+    .msg.user .bubble{margin-left:auto;background:rgba(21,94,117,.25)}
+    .msg.bot .bubble{background:rgba(30,41,59,.6)}
+    .meta{font-size:11px;color:#9fb1c5;margin-top:6px}
+    .composer{border-top:1px solid var(--line);padding:14px 16px;background:rgba(2,6,23,.6);backdrop-filter: blur(6px);display:flex;gap:10px;align-items:end}
+    textarea{flex:1;min-height:46px;max-height:160px;resize:vertical;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#0f172a;color:#e5eff7}
+    .send{padding:10px 14px;border-radius:12px;background:var(--accent);border:0;color:#00222a;font-weight:600;cursor:pointer}
+    .quick{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+    .quick .chip{padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:#bcd;cursor:pointer;user-select:none}
+    .chip:hover{background:#0b1226}
+    .footer{padding:10px 16px;color:#8aa1b1;font-size:12px}
+    .kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:#0b1226;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    .status{display:flex;gap:6px;align-items:center}
+    .status .blink{width:6px;height:6px;border-radius:999px;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:blink 1.2s ease-in-out infinite}
+    @keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1 style="color:red">TEST</h1>
+  <div class="app">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1>Library Chatbox</h1>
+        <div class="sub">VI Assistant · flow-aware · SQLite friendly</div>
+      </div>
+      <div class="toolbar">
+        <button id="btnExport" class="btn" title="Xuất lịch sử dưới dạng JSON">Xuất lịch sử</button>
+        <button id="btnClear" class="btn btn-danger" title="Xóa phiên hiện tại">Xóa phiên</button>
+      </div>
+    </header>
+
+    <main id="chat" class="chat" aria-live="polite" aria-label="Khu vực hội thoại">
+      <div id="emptyState" class="empty">
+        <p>Chào bạn! Hãy bắt đầu trao đổi bằng cách nhập nội dung bên dưới.<br/>
+        Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · <span class="kbd">Shift</span>+<span class="kbd">Enter</span> để xuống dòng.</p>
+      </div>
+    </main>
+
+    <section class="composer">
+      <div style="flex:1">
+        <textarea id="input" placeholder="Gõ câu hỏi… (ví dụ: Thư viện mở cửa khi nào?)" spellcheck="true"></textarea>
+        <div class="quick" aria-label="Hành động nhanh">
+          <span class="chip" data-fill="hủy">Hủy luồng</span>
+          <span class="chip" data-fill="thoát">Thoát</span>
+          <span class="chip" data-fill="đổi chủ đề">Đổi chủ đề</span>
+          <span class="chip" data-fill="giờ mở cửa">Giờ mở cửa</span>
+        </div>
+      </div>
+      <button id="send" class="send">Gửi</button>
+    </section>
+
+    <div class="footer">
+      <div class="status"><span class="blink" aria-hidden="true"></span> Sẵn sàng — API: <span id="apiStatus">offline</span></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+
+
+</body>
+</html>
