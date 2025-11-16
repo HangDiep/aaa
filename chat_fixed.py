@@ -208,36 +208,103 @@ def process_message(sentence: str) -> str:
     if not sentence:
         return "Xin lỗi, mình chưa hiểu ý bạn."
 
-    # TODO: ở đây bạn có thể thêm logic intents / flow / faq / inventory ...
     reply: Optional[str] = None
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
 
-    # ví dụ: chưa có ý tưởng → trả lời mặc định
+    # 1) Thử dùng Ollama + FAQ (Notion → SQLite) để trả lời theo kịch bản
+    if ollama_alive():
+        try:
+            # 1.1) Phân loại Category (Intent) bằng LLM
+            category = classify_category(sentence)
+            tag_to_log = category  # log intent = category
+
+            # 1.2) Lấy danh sách FAQ trong category đó từ bảng faq
+            conn_faq = sqlite3.connect(FAQ_DB_PATH)   # 👉 mở faq.db, không dùng ensure_main_db()
+            cur_faq = conn_faq.cursor()
+            cur_faq.execute("""
+                SELECT question, answer
+                FROM faq
+                WHERE category = ?
+                AND (approved = 1 OR approved IS NULL)
+            """, (category,))
+            rows = cur_faq.fetchall()
+            conn_faq.close()
+
+
+            if rows:
+                # 1.3) Ghép block Q/A cho LLM đọc và chọn câu trả lời
+                faq_block_lines = []
+                for idx, (q, a) in enumerate(rows, start=1):
+                    q = (q or "").strip()
+                    a = (a or "").strip()
+                    faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
+                faq_block = "\n\n".join(faq_block_lines)
+
+                answer_prompt = (
+                    "Bạn là chatbot của Thư viện.\n"
+                    f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
+                    f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
+                    f"{faq_block}\n\n"
+                    "NHIỆM VỤ:\n"
+                    "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
+                    "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
+                    "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
+                    "4. Nếu không có Answer nào phù hợp, hãy nói: "
+                    "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
+                    "Bây giờ hãy trả lời người dùng:"
+                )
+
+                payload = {
+                    "model": OLLAMA_MODEL,
+                    "prompt": answer_prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.2,
+                        "num_predict": 200
+                    }
+                }
+
+                r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                                  json=payload, timeout=OLLAMA_TIMEOUT)
+                if r.status_code == 200:
+                    reply_llm = (r.json().get("response") or "").strip()
+                    if reply_llm:
+                        reply = reply_llm
+                        confidence = 0.9  # tạm cho cao, sau này bạn có thể tinh chỉnh
+        except Exception as e:
+            print("[process_message] FAQ/LLM error:", e)
+
+    # 2) Fallback: nếu vẫn chưa có câu trả lời, trả mặc định
     if reply is None or not reply.strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
+        confidence = 0.0
+        # tag_to_log giữ nguyên (có thể là None hoặc category đoán được)
+
+    # 3) Append thêm câu cho mượt, dùng hàm cũ (nếu bật)
     if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
         extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
         if extra:
             reply = f"{reply.strip()} {extra.strip()}"
 
-    # 3) Ghi SQLite trước
+    # 4) Ghi SQLite (bảng conversations) như trước
     conn = ensure_main_db()
     cur  = conn.cursor()
     cur.execute(
-        "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
+        "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) "
+        "VALUES (?,?,?,?,?)",
         (sentence, reply, tag_to_log, confidence, _now()),
     )
     conn.commit()
     conn.close()
 
-    # 3.1) Ghi thêm vào faq.db (inbox)
+    # 5) Ghi thêm vào faq.db (inbox) như cũ
     try:
         log_question_for_notion(f"User: {sentence}\nBot: {reply}")
     except Exception as e:
         print(f"[Notion inbox] Lỗi ghi faq.db: {e}")
 
-    # 4) Đẩy Notion (không chặn luồng chat)
+    # 6) Đẩy Notion (không chặn luồng chat) – giữ logic cũ
     should_push = (
         LOG_ALL_QUESTIONS
         or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
@@ -251,6 +318,7 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
+
 
 
 def _dns_ok(host: str, timeout_s: float = 3.0) -> bool:
@@ -549,123 +617,174 @@ def _ntn_session():
     s.mount("http://", HTTPAdapter(max_retries=retry))
     return s
 # ============== Ollama append (an toàn) ==============
-# /*def sanitize_vi(extra: str) -> str:
-#     if not extra: return ""
-#     extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
-#     extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
-#     extra = extra.replace('“','').replace('”','').replace('"','').strip()
-#     extra = re.sub(r'\s+', ' ', extra)
-#     banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
-#     if extra.lower().startswith(banned_starts): return ""
-#     if len(extra.split()) < 3: return ""
-#     return extra
-# def get_recent_history(limit=6):
-#     """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
-#     try:
-#         conn = sqlite3.connect(DB_PATH)
-#         cur = conn.cursor()
-#         cur.execute("""
-#             SELECT user_message, bot_reply, time
-#             FROM conversations
-#             ORDER BY id DESC
-#             LIMIT ?
-#         """, (limit,))
-#         rows = cur.fetchall()
-#         conn.close()
-#         # đảo lại cho thành cũ → mới
-#         rows.reverse()
-#         return rows
-#     except Exception:
-#         return []
+def sanitize_vi(extra: str) -> str:
+    if not extra: return ""
+    extra = re.sub(r'[\u3400-\u9FFF\uF900-\uFAFF]+', '', extra)
+    extra = re.sub(r'[\U0001F300-\U0001FAFF]', '', extra)
+    extra = extra.replace('“','').replace('”','').replace('"','').strip()
+    extra = re.sub(r'\s+', ' ', extra)
+    banned_starts = ("chào mừng", "rất tiếc", "xin chào", "cảm ơn")
+    if extra.lower().startswith(banned_starts): return ""
+    if len(extra.split()) < 3: return ""
+    return extra
+def get_recent_history(limit=6):
+    """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT user_message, bot_reply, time
+            FROM conversations
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,))
+        rows = cur.fetchall()
+        conn.close()
+        # đảo lại cho thành cũ → mới
+        rows.reverse()
+        return rows
+    except Exception:
+        return []
 
-# def ollama_generate_continuation(base_reply: str, user_message: str, max_sentences=3) -> str:
-#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-#     history = get_recent_history(limit=8)
+def ollama_generate_continuation(base_reply: str, user_message: str, max_sentences=3) -> str:
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    history = get_recent_history(limit=8)
 
-#     # Ghép lịch sử: Q/A ngắn gọn
-#     hist_lines = []
-#     for q, a, t in history:
-#         q = (q or "").strip()
-#         a = (a or "").strip()
-#         if q or a:
-#             hist_lines.append(f"- User: {q}")
-#             hist_lines.append(f"  Bot: {a}")
-#     hist_block = "\n".join(hist_lines[-14:])  # tránh dài quá
+    # Ghép lịch sử: Q/A ngắn gọn
+    hist_lines = []
+    for q, a, t in history:
+        q = (q or "").strip()
+        a = (a or "").strip()
+        if q or a:
+            hist_lines.append(f"- User: {q}")
+            hist_lines.append(f"  Bot: {a}")
+    hist_block = "\n".join(hist_lines[-14:])  # tránh dài quá
 
-#     system_prompt = (
-#         "Bạn là trợ lý thư viện DHTN. Dựa vào lịch sử hội thoại dưới đây, "
-#         "hãy VIẾT TIẾP phần trả lời cho mượt mà, chỉ thêm ý bổ sung hợp lý, "
-#         "KHÔNG lặp lại nguyên văn, KHÔNG mở chủ đề mới, KHÔNG bịa số liệu. "
-#         "Nếu lịch sử không giúp ích, trả về chuỗi RỖNG.\n"
-#         "Giới hạn 1–3 câu ngắn. Chỉ tiếng Việt."
-#     )
+    system_prompt = (
+        "Bạn là trợ lý thư viện DHTN. Dựa vào lịch sử hội thoại dưới đây, "
+        "hãy VIẾT TIẾP phần trả lời cho mượt mà, chỉ thêm ý bổ sung hợp lý, "
+        "KHÔNG lặp lại nguyên văn, KHÔNG mở chủ đề mới, KHÔNG bịa số liệu. "
+        "Nếu lịch sử không giúp ích, trả về chuỗi RỖNG.\n"
+        "Giới hạn 1–3 câu ngắn. Chỉ tiếng Việt."
+    )
 
-#     user_prompt = (
-#         f"Lịch sử gần đây:\n{hist_block}\n\n"
-#         f"Câu trả lời hiện tại của bot:\n{base_reply}\n\n"
-#         f"Người dùng vừa hỏi:\n{user_message}\n\n"
-#         f"YÊU CẦU: Viết tiếp ngắn gọn (1–3 câu) bổ sung ý dựa trên lịch sử. "
-#         f"Nếu không phù hợp, trả về rỗng."
-#     )
+    user_prompt = (
+        f"Lịch sử gần đây:\n{hist_block}\n\n"
+        f"Câu trả lời hiện tại của bot:\n{base_reply}\n\n"
+        f"Người dùng vừa hỏi:\n{user_message}\n\n"
+        f"YÊU CẦU: Viết tiếp ngắn gọn (1–3 câu) bổ sung ý dựa trên lịch sử. "
+        f"Nếu không phù hợp, trả về rỗng."
+    )
 
-#     payload = {
-#         "model": OLLAMA_MODEL,
-#         "prompt": f"{system_prompt}\n\n{user_prompt}",
-#         "stream": False,
-#         "options": {
-#             "temperature": 0.2,
-#             "top_p": 0.9,
-#             "repeat_penalty": 1.15,
-#             "num_predict": 120
-#         }
-#     }
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": f"{system_prompt}\n\n{user_prompt}",
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "repeat_penalty": 1.15,
+            "num_predict": 120
+        }
+    }
 
-#     try:
-#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-#         if r.status_code != 200:
-#             print(f"[Ollama-continue] HTTP {r.status_code}: {r.text[:200]}")
-#             return ""
-#         extra = (r.json().get("response") or "").strip()
-#         # làm sạch ngắn gọn
-#         extra = re.sub(r'\s+', ' ', extra)
-#         if not extra or extra.lower() in ("", "rỗng", "(rỗng)"):
-#             return ""
-#         # cắt tối đa 3 câu
-#         sentences = [s.strip() for s in re.split(r'[.!?…]+', extra) if s.strip()]
-#         extra_short = ". ".join(sentences[:max_sentences]).strip()
-#         return (extra_short + ".") if extra_short and not extra_short.endswith(".") else extra_short
-#     except Exception as e:
-#         print("[Ollama-continue] Error:", e)
-#         return ""
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        if r.status_code != 200:
+            print(f"[Ollama-continue] HTTP {r.status_code}: {r.text[:200]}")
+            return ""
+        extra = (r.json().get("response") or "").strip()
+        # làm sạch ngắn gọn
+        extra = re.sub(r'\s+', ' ', extra)
+        if not extra or extra.lower() in ("", "rỗng", "(rỗng)"):
+            return ""
+        # cắt tối đa 3 câu
+        sentences = [s.strip() for s in re.split(r'[.!?…]+', extra) if s.strip()]
+        extra_short = ". ".join(sentences[:max_sentences]).strip()
+        return (extra_short + ".") if extra_short and not extra_short.endswith(".") else extra_short
+    except Exception as e:
+        print("[Ollama-continue] Error:", e)
+        return ""
+    # tự động lấy intent từ notion 
+def get_all_categories():
+    conn = sqlite3.connect(FAQ_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT category FROM faq WHERE category IS NOT NULL")
+    rows = cur.fetchall()
+    conn.close()
+    # trả về list tên categories, loại bỏ None, rỗng
+    cats = [ (r[0] or "").strip() for r in rows ]
+    cats = [c for c in cats if c]
+    return sorted(set(cats))
+def classify_category(user_message: str) -> str:
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
 
-# # ============== CLI ==============
-# def _test_push_notion_once():
-#     token, dbid, mode, base = _resolve_notion_env()
-#     tok_prefix = (token.split("_",1)[0]+"_") if "_" in token else token[:6]
-#     print("[TEST] mode:", mode, "| dbid:", dbid, "| base:", base, "| token_prefix:", tok_prefix)
+    categories = get_all_categories()
+    if not categories:
+        return "Chưa phân loại"
 
-#     # Test /status (Cloudflare/Notion)
-#     try:
-#         r = requests.get("https://api.notion.com/v1/status", timeout=6)
-#         print("[TEST] status api.notion.com:", r.status_code)
-#     except Exception as e:
-#         print("[TEST] status error:", e)
+    # ghép thành bullet list
+    bullet = "\n".join(f"- {c}" for c in categories)
 
-#     if not token or not dbid:
-#         print("[TEST] Thiếu token/dbid")
-#         return
+    system_prompt = (
+        "Bạn là trợ lý ảo của Thư viện.\n"
+        "Nhiệm vụ: Đọc câu hỏi của người dùng và CHỈ TRẢ VỀ TÊN MỘT Category "
+        "trong danh sách sau (phải chọn đúng 1):\n\n"
+        f"{bullet}\n\n"
+        "Nếu không chắc chắn -> chọn Category có vẻ gần nhất. "
+        "Nếu hoàn toàn không phù hợp -> chọn một Category tên gần nhất là 'Chưa phân loại' nếu có.\n\n"
+        "Hãy TRẢ VỀ duy nhất tên Category, không giải thích thêm."
+    )
 
-#     # Tạo payload động đúng schema thực tế của database
-#     q = "Ping từ script"
-#     a = "Nếu thấy page này là OK."
-#     try:
-#         payload = _build_dynamic_payload_force(dbid, q, a) 
-#     except Exception as e:
-#         print(f"[TEST] Build payload error:", e)
-#         return
+    user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
 
-#     ok, code, body = _http_create_page(token, base, payload, timeout_s=15.0)
-#     print(f"[TEST] POST {base}/pages →", code, (body[:200] if isinstance(body, str) else body))
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": system_prompt + "\n\n" + user_prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 32
+        }
+    }
+
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        resp = (r.json().get("response") or "").strip()
+        cat = resp.splitlines()[0].strip()
+        return cat or "Chưa phân loại"
+    except Exception as e:
+        print("[Category] Error:", e)
+        return "Chưa phân loại"
+    
+# ============== CLI ==============
+def _test_push_notion_once():
+    token, dbid, mode, base = _resolve_notion_env()
+    tok_prefix = (token.split("_",1)[0]+"_") if "_" in token else token[:6]
+    print("[TEST] mode:", mode, "| dbid:", dbid, "| base:", base, "| token_prefix:", tok_prefix)
+
+    # Test /status (Cloudflare/Notion)
+    try:
+        r = requests.get("https://api.notion.com/v1/status", timeout=6)
+        print("[TEST] status api.notion.com:", r.status_code)
+    except Exception as e:
+        print("[TEST] status error:", e)
+
+    if not token or not dbid:
+        print("[TEST] Thiếu token/dbid")
+        return
+
+    # Tạo payload động đúng schema thực tế của database
+    q = "Ping từ script"
+    a = "Nếu thấy page này là OK."
+    try:
+        payload = _build_dynamic_payload_force(dbid, q, a) 
+    except Exception as e:
+        print(f"[TEST] Build payload error:", e)
+        return
+
+    ok, code, body = _http_create_page(token, base, payload, timeout_s=15.0)
+    print(f"[TEST] POST {base}/pages →", code, (body[:200] if isinstance(body, str) else body))
 
 
 
