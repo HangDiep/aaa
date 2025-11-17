@@ -849,19 +849,17 @@ QUY TẮC:
 def answer_from_books(user_message: str) -> str:
     try:
         text = user_message.strip().lower()
-
-        # ========== 1) Kiểm tra xem user nhập CÓ PHẢI TÊN NGÀNH không ==========
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
+
+        # ========== 1) Kiểm tra user nhập tên NGÀNH ==========
         cur.execute("SELECT name, major_id FROM majors")
         majors = cur.fetchall()
 
-        # So trùng trực tiếp trước (ưu tiên mạnh nhất)
         for name, major_id in majors:
             if text == name.lower().strip():
-                # → User nhập đúng tên ngành → lấy toàn bộ sách
                 cur.execute("""
-                    SELECT name, author, year, status
+                    SELECT name, author, year, quantity, status
                     FROM books
                     WHERE major_id = ?
                 """, (major_id,))
@@ -872,15 +870,68 @@ def answer_from_books(user_message: str) -> str:
                     return f"Ngành {name} hiện chưa có sách."
 
                 block = "\n".join(
-                    f"- {n} – {a}, {y} – {s}" for n, a, y, s in books
+                    f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}"
+                    for n, a, y, q, s in books
                 )
                 return f"Danh sách sách thuộc ngành **{name}**:\n\n{block}"
 
-        # ========== 2) Nếu KHÔNG phải tên ngành → dùng LLM trích từ khóa ==========
+        # ========== 2) Kiểm tra user hỏi TÁC GIẢ ==========
+        cur.execute("SELECT DISTINCT author FROM books")
+        authors = [r[0].lower().strip() for r in cur.fetchall()]
+
+        for a in authors:
+            if a in text or text in a:
+                cur.execute("""
+                    SELECT name, year, quantity, status
+                    FROM books
+                    WHERE lower(author) = ?
+                """, (a,))
+                books = cur.fetchall()
+                conn.close()
+
+                if not books:
+                    return f"Tác giả {a} chưa có sách trong hệ thống."
+
+                block = "\n".join(
+                    f"- {n}, {y}, SL: {q}, Trạng thái: {s}"
+                    for n, y, q, s in books
+                )
+                return f"Các sách của tác giả **{a}**:\n\n{block}"
+
+        # ========== 3) Kiểm tra user nhập TÊN SÁCH ==========
+        cur.execute("""
+            SELECT name, author, year, quantity, status, major_id
+            FROM books
+        """)
+        rows = cur.fetchall()
+
+        for n, a, y, q, s, m in rows:
+            if text == n.lower().strip():
+                # Tìm tên ngành
+                cur.execute("SELECT name FROM majors WHERE major_id = ?", (m,))
+                major_name = cur.fetchone()
+                major_label = major_name[0] if major_name else "Không rõ"
+
+                conn.close()
+                return (
+                    f"**Thông tin sách:**\n"
+                    f"- Tên: {n}\n"
+                    f"- Tác giả: {a}\n"
+                    f"- Năm XB: {y}\n"
+                    f"- Số lượng: {q}\n"
+                    f"- Trạng thái: {s}\n"
+                    f"- Ngành: {major_label}"
+                )
+
+        # ========== 4) Nếu không trùng gì → dùng LLM trích keyword ==========
         extract_prompt = f"""
 Bạn là trợ lý thư viện.
-Hãy trích từ khóa là TÊN SÁCH trong câu hỏi sau (KHÔNG phải mô tả ngành).
-Nếu không chắc → trả về rỗng.
+Nhiệm vụ: trích TÊN SÁCH hoặc TÊN TÁC GIẢ từ câu hỏi sau.
+
+Chỉ trả về:
+- Hoặc 1 tên sách
+- Hoặc 1 tên tác giả
+- Nếu không tìm thấy → trả rỗng
 
 Câu hỏi: "{user_message}"
 """
@@ -892,35 +943,43 @@ Câu hỏi: "{user_message}"
             "options": {"temperature": 0.0, "num_predict": 50}
         }
         r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=OLLAMA_TIMEOUT)
-
-        key = (r.json().get("response") or "").strip().split("\n")[0]
-        key = re.sub(r'[^0-9a-zA-ZÀ-ỹ\s]', '', key)
+        key = (r.json().get("response") or "").split("\n")[0].strip()
+        key = key.lower()
 
         if not key:
-            return "Không tìm thấy sách liên quan."
+            return "Không tìm thấy thông tin phù hợp."
 
-        # ========== 3) Tìm theo tên sách ==========
-        conn = sqlite3.connect(FAQ_DB_PATH)
-        cur = conn.cursor()
+        # ========== 5) Tìm theo tên sách gần đúng ==========
+        cur = sqlite3.connect(FAQ_DB_PATH).cursor()
         cur.execute("""
-            SELECT name, author, year, status
+            SELECT name, author, year, quantity, status, major_id
             FROM books
             WHERE lower(name) LIKE ?
-        """, (f"%{key.lower()}%",))
-        books = cur.fetchall()
-        conn.close()
+        """, (f"%{key}%",))
+        book_rows = cur.fetchall()
 
-        if not books:
-            return f"Không tìm thấy sách liên quan: {key}"
+        if book_rows:
+            n, a, y, q, s, m = book_rows[0]
+            cur.execute("SELECT name FROM majors WHERE major_id = ?", (m,))
+            major = cur.fetchone()
+            major_label = major[0] if major else "Không rõ"
 
-        block = "\n".join(
-            f"- {n} – {a}, {y} – {s}" for n, a, y, s in books
-        )
+            return (
+                f"**Thông tin sách:**\n"
+                f"- Tên: {n}\n"
+                f"- Tác giả: {a}\n"
+                f"- Năm XB: {y}\n"
+                f"- Số lượng: {q}\n"
+                f"- Trạng thái: {s}\n"
+                f"- Ngành: {major_label}"
+            )
 
-        return f"Danh sách sách tìm được theo từ khóa **{key}**:\n\n{block}"
+        # Không tìm thấy gì cả
+        return f"Không tìm thấy sách liên quan tới: **{key}**"
 
     except Exception as e:
         return f"[LỖI books] {e}"
+
 
 
 def process_message(sentence: str) -> str:
