@@ -13,6 +13,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import socket
 from datetime import datetime
+import rapidfuzz
+from rapidfuzz import fuzz
 
 
 
@@ -609,54 +611,6 @@ def get_all_major_names():
     conn.close()
     return [r[0].strip().lower() for r in rows]
 
-
-
-# def classify_category(user_message: str) -> str:
-#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-#     msg = user_message.lower().strip()
-
-#     categories = get_all_categories()
-#     # ghép thành bullet list
-#     bullet = "\n".join(f"- {c}" for c in categories)
-
-#     system_prompt = (
-#         "Bạn là trợ lý ảo của Thư viện.\n"
-#         "Nhiệm vụ: Đọc câu hỏi của người dùng và CHỈ TRẢ VỀ TÊN MỘT Category "
-#         "trong danh sách sau (phải chọn đúng 1):\n\n"
-#         f"{bullet}\n\n"
-#         "- \"Thông tin ngành\": câu hỏi về ngành đào tạo, tên ngành, mã ngành, mô tả ngành, "
-#         "số ngành, ngành nào có đào tạo...\n"
-#         "- \"Tra cứu sách\": câu hỏi về tên sách, danh sách sách, sách thuộc ngành nào, "
-#         "sách còn hay hết...\n"
-#         "Nếu câu hỏi chỉ là tên một ngành (ví dụ: \"Công nghệ thông tin\", \"Y học\"), "
-#         "thì chọn \"Thông tin ngành\".\n"
-#         "Nếu không chắc chắn -> chọn Category có vẻ gần nhất. "
-#         "Nếu hoàn toàn không phù hợp -> chọn 'Chưa phân loại' nếu có.\n\n"
-#         "Hãy TRẢ VỀ duy nhất tên Category, không giải thích thêm."
-#     )
-
-
-#     user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
-
-#     payload = {
-#         "model": OLLAMA_MODEL,
-#         "prompt": system_prompt + "\n\n" + user_prompt,
-#         "stream": False,
-#         "options": {
-#             "temperature": 0.0,
-#             "num_predict": 32
-#         }
-#     }
-
-#     try:
-#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-#         resp = (r.json().get("response") or "").strip()
-#         cat = resp.splitlines()[0].strip()
-#         return cat or "Chưa phân loại"
-#     except Exception as e:
-#         print("[Category] Error:", e)
-#         return "Chưa phân loại"
-    
 def answer_from_majors(user_message: str) -> str:
     try:
         # --- 1. Trích tên ngành ---
@@ -724,246 +678,287 @@ Hãy trả lời tự nhiên, KHÔNG bịa thêm.
         return f"[LỖI majors] {e}"
 
 
-# def classify_category(user_message: str) -> str:
-#     """
-#     Phân loại ý định (Intent) dựa trên ý nghĩa, không dùng keyword matching.
-#     Dùng LLM để suy luận ngữ nghĩa – hiểu cả sai chính tả, viết tắt, câu hỏi thiếu.
-#     """
-
-#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-    
-#     categories = get_all_categories()
-#     if not categories:
-#         return "Chưa phân loại"
-
-#     bullet = "\n".join(f"- {c}" for c in categories)
-
-#     system_prompt = f"""
-# Bạn là trợ lý ảo của Thư viện. Bạn phân tích Ý NGHĨA câu hỏi, không dựa trên từ khóa.
-# Nhiệm vụ: chọn CHÍNH XÁC 1 category phù hợp nhất từ danh sách sau:
-
-# {bullet}
-
-# === HƯỚNG DẪN HIỂU Ý (KHÔNG DÙNG KEYWORD) ===
-# - "Thông tin ngành": khi người dùng nhắc tên ngành (CNTT, Công nghệ thông tin, Y học…)
-#   kể cả họ chỉ viết tên ngành CHỮNG KHÔNG có từ “ngành”.
-#   Hiểu cả sai chính tả: "công nghê thông tin", "C.N.T.T", "cnt"
-#   Các câu dạng:
-#     • "CNTT là gì?"
-#     • "Ngành đó có những môn nào?"
-#     • "Kinh tế học ra làm gì?"
-#     • "khối y có bao nhiêu ngành?"
-# - "Tra cứu sách": khi người dùng hỏi về danh sách sách, tên sách, sách của ngành nào,
-#   sách còn không, sách tác giả nào…
-#   Hiểu cả câu không rõ:
-#     • "Có sách AI không?"
-#     • "liệt kê sách CNTT"
-#     • "Python còn không?"
-#     • "mạng máy tính có bao nhiêu bản?"
-# - Nếu user chỉ nhập 1 từ hoặc cụm từ:
-#   → Nếu giống một ngành → chọn "Thông tin ngành"
-#   → Nếu giống tên sách → chọn "Tra cứu sách"
-
-# - Nếu câu hỏi không thuộc 2 nhóm trên, chọn category có vẻ phù hợp nhất
-# - Nếu hoàn toàn không chắc → trả về: "Chưa phân loại"
-
-# CHỈ TRẢ VỀ DUY NHẤT TÊN CATEGORY.
-# Không giải thích thêm.
-# """
-
-#     user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
-
-#     payload = {
-#         "model": OLLAMA_MODEL,
-#         "prompt": system_prompt + "\n" + user_prompt,
-#         "stream": False,
-#         "options": {"temperature": 0.0, "num_predict": 32},
-#     }
-
-#     try:
-#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-#         raw = (r.json().get("response") or "").strip()
-#         cat = raw.splitlines()[0].strip()
-#         return cat or "Chưa phân loại"
-#     except:
-#         return "Chưa phân loại"
 def classify_category(user_message: str) -> str:
     """
-    Phân loại intent 100% theo NGỮ NGHĨA bằng LLM.
-    Không dùng keyword.
-    Hiểu cả khi user chỉ gõ tên ngành hoặc tên sách.
+    Phân loại intent:
+    - Nếu giống tên SÁCH hoặc TÁC GIẢ trong books -> Tra cứu sách (không cần LLM)
+    - Ngược lại mới hỏi LLM để chọn giữa "Thông tin ngành" / "Tra cứu sách"
     """
-    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-    msg = user_message.strip()
+    msg = (user_message or "").strip()
+    if not msg:
+        return "Tra cứu sách"
 
-    # Lấy danh sách ngành từ DB → tự học
-    conn = sqlite3.connect(FAQ_DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM majors")
-    major_names = [r[0] for r in cur.fetchall()]
-    conn.close()
+    # --- 0) ƯU TIÊN: so fuzzy với tên SÁCH và TÁC GIẢ trong DB ---
+    try:
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+
+        cur.execute("SELECT name, author FROM books")
+        rows = cur.fetchall()
+        conn.close()
+
+        book_names   = [r[0] for r in rows if r[0]]
+        author_names = [r[1] for r in rows if r[1]]
+
+        # Nếu giống tên sách → chắc chắn là Tra cứu sách
+        book_match, _ = fuzzy_best_match(msg, book_names, threshold=60)
+        if book_match:
+            # print("[DEBUG] classify: match book -> Tra cứu sách", book_match)
+            return "Tra cứu sách"
+
+        # Nếu giống tác giả → Tra cứu sách
+        author_match, _ = fuzzy_best_match(msg, author_names, threshold=70)
+        if author_match:
+            # print("[DEBUG] classify: match author -> Tra cứu sách", author_match)
+            return "Tra cứu sách"
+
+    except Exception as e:
+        print("[classify_category] book fuzzy error:", e)
+        # nếu lỗi DB thì bỏ qua, xuống LLM
+
+    # --- 1) Nếu không giống sách/tác giả → dùng LLM như cũ cho ngành/sách ---
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+
+    # Lấy danh sách ngành từ DB → cho LLM biết
+    try:
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM majors")
+        major_names = [r[0] for r in cur.fetchall()]
+        conn.close()
+    except Exception:
+        major_names = []
 
     bullet = "\n".join(f"- {m}" for m in major_names)
 
     system_prompt = f"""
-Bạn là trợ lý thư viện.
-Nhiệm vụ: Phân tích câu của người dùng và chọn chính xác 1 trong 2 category sau:
+Bạn là trợ lý thư viện. Nhiệm vụ: Phân tích câu của người dùng và chọn chính xác 1 trong 2 category sau:
 
 1) "Thông tin ngành"  → khi người dùng:
-    - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
-    - Viết sai chính tả nhưng gần giống tên ngành
-    - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
+   - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
+   - Viết sai chính tả nhưng gần giống tên ngành
+   - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
 
 2) "Tra cứu sách" → khi người dùng:
-    - Hỏi về sách, tên sách, liệt kê sách
-    - Hỏi sách còn không, sách ngành nào
-    - Hỏi sách theo tác giả, năm xuất bản,…
+   - Hỏi về sách, tên sách, liệt kê sách
+   - Hỏi sách còn không, sách ngành nào
+   - Hỏi sách theo tác giả, năm xuất bản,…
 
-=== Danh sách ngành hợp lệ ===
+=== Danh sách ngành hợp lệ (tham khảo) ===
 {bullet}
 
 QUY TẮC:
-- Nếu user chỉ gõ 1 từ/cụm từ và giống với **tên ngành** → chọn "Thông tin ngành".
-- Nếu user hỏi loại sách / tên sách → chọn "Tra cứu sách".
-- Trả về duy nhất 1 trong 2 chuỗi:
-    Thông tin ngành
-    Tra cứu sách
+- Nếu user chỉ gõ 1 từ/cụm từ và giống với tên ngành → chọn "Thông tin ngành".
+- Nếu user hỏi về sách, tài liệu, hoặc có vẻ là tên sách → chọn "Tra cứu sách".
+
+Trả về DUY NHẤT một trong 2 chuỗi:
+- Thông tin ngành
+- Tra cứu sách
 """
 
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": system_prompt + "\n\nCâu của user: " + msg,
         "stream": False,
-        "options": {"temperature": 0.0, "num_predict": 32}
+        "options": {"temperature": 0.0, "num_predict": 32},
     }
 
     try:
         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
         raw = (r.json().get("response") or "").strip().splitlines()[0]
-        return raw if raw in ["Thông tin ngành", "Tra cứu sách"] else "Tra cứu sách"
-    except:
+        if raw in ["Thông tin ngành", "Tra cứu sách"]:
+            return raw
+        return "Tra cứu sách"
+    except Exception as e:
+        print("[classify_category] LLM error:", e)
         return "Tra cứu sách"
 
 
+import unicodedata
+
+def normalize_vi(text: str) -> str:
+    text = (text or "").lower().strip()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", text)
+
+def fuzzy_best_match(text: str, candidates: list[str], threshold: int = 70):
+    """
+    Trả về đúng 2 giá trị: (best_string, score).
+    Nếu không có match đủ ngưỡng → (None, 0).
+    """
+    norm_text = normalize_vi(text)
+    best = None
+    best_score = 0
+
+    for c in candidates:
+        norm_c = normalize_vi(c)
+        score = fuzz.partial_ratio(norm_text, norm_c)
+        if score > best_score:
+            best_score = score
+            best = c
+
+    if best_score >= threshold:
+        return best, best_score
+    return None, 0
+
+
+def _llm_format_books_answer(question: str, books: list[tuple], mode: str, extra_label: str = "") -> str:
+    """
+    Dùng Ollama để viết câu trả lời cho đẹp, NHƯNG chỉ dựa trên list `books`.
+    books: list tuple (name, author, year, quantity, status, major_name)
+    mode: 'book' | 'author' | 'major'
+    extra_label: tên tác giả / tên ngành / tên sách gốc nếu muốn nhắc lại
+    """
+    if not ollama_alive() or not books:
+        return ""  # để answer_from_books fallback sang format cứng
+
+    # Ghép block sách gửi cho LLM
+    lines = []
+    for idx, (name, author, year, qty, status, major_name) in enumerate(books, start=1):
+        major_name = major_name or "Không rõ"
+        lines.append(
+            f"{idx}) Tên: {name} | Tác giả: {author} | Năm: {year} | "
+            f"SL: {qty} | Trạng thái: {status} | Ngành: {major_name}"
+        )
+    books_block = "\n".join(lines)
+
+    if mode == "book":
+        mode_desc = "một hoặc vài CUỐN SÁCH cụ thể mà người dùng đang hỏi."
+    elif mode == "author":
+        mode_desc = f"các sách của TÁC GIẢ {extra_label}."
+    else:
+        mode_desc = f"các sách thuộc NGÀNH {extra_label}."
+
+    system_prompt = f"""
+Bạn là trợ lý thư viện. Bạn sẽ được cung cấp:
+- CÂU HỎI của người dùng.
+- DANH SÁCH SÁCH lấy trực tiếp từ cơ sở dữ liệu thư viện.
+
+NHIỆM VỤ:
+1. Dựa vào danh sách này, hãy trả lời câu hỏi của người dùng về {mode_desc}
+2. CHỈ ĐƯỢC SỬ DỤNG những sách xuất hiện trong danh sách bên dưới.
+   **KHÔNG ĐƯỢC BỊA THÊM TÊN SÁCH, TÁC GIẢ, NĂM, TRẠNG THÁI, SỐ LƯỢNG, NGÀNH MỚI.**
+3. Nếu danh sách chỉ có 1 sách → mô tả chi tiết sách đó.
+4. Nếu có nhiều sách → có thể liệt kê 3–7 sách tiêu biểu, gộp nhóm hợp lý.
+5. Trả lời bằng tiếng Việt, tự nhiên, ngắn gọn, dễ hiểu.
+"""
+
+    user_prompt = f"""
+Câu hỏi người dùng: "{question}"
+
+Danh sách sách từ cơ sở dữ liệu:
+{books_block}
+
+Hãy trả lời, NHỚ: chỉ dùng thông tin trong danh sách trên.
+"""
+
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": system_prompt + "\n\n" + user_prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "num_predict": 400
+        }
+    }
+
+    try:
+        r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                          json=payload, timeout=OLLAMA_TIMEOUT)
+        if r.status_code != 200:
+            print("[books-llm-format] HTTP", r.status_code, r.text[:200])
+            return ""
+        resp = (r.json().get("response") or "").strip()
+        return resp
+    except Exception as e:
+        print("[books-llm-format] Error:", e)
+        return ""
 
 def answer_from_books(user_message: str) -> str:
+    """
+    Tra cứu sách dựa trên bảng books/majors (fuzzy, không bịa),
+    sau đó (nếu được) nhờ Ollama viết lại câu trả lời cho tự nhiên hơn.
+    """
     try:
-        text = user_message.strip().lower()
+        text_raw = (user_message or "").strip()
+        if not text_raw:
+            return "Mình chưa nhận được nội dung để tra cứu sách."
+        text = normalize_vi(text_raw)
+
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
 
-        # ========== 1) Kiểm tra user nhập tên NGÀNH ==========
-        cur.execute("SELECT name, major_id FROM majors")
-        majors = cur.fetchall()
+        # --- Lấy dữ liệu gốc ---
+        cur.execute("""
+            SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
+            FROM books b
+            LEFT JOIN majors m ON b.major_id = m.major_id
+        """)
+        all_books = cur.fetchall()  # [(name, author, year, qty, status, major_name), ...]
 
-        for name, major_id in majors:
-            if text == name.lower().strip():
-                cur.execute("""
-                    SELECT name, author, year, quantity, status
-                    FROM books
-                    WHERE major_id = ?
-                """, (major_id,))
-                books = cur.fetchall()
+        if not all_books:
+            conn.close()
+            return "Hiện thư viện chưa có dữ liệu sách trong hệ thống."
+
+        # Danh sách tên sách / tác giả / ngành để fuzzy
+        book_names = [b[0] for b in all_books]
+        author_names = list({b[1] for b in all_books if b[1]})
+        major_names = list({b[5] for b in all_books if b[5]})
+
+        # ================= 0) ƯU TIÊN CÂU HỎI THEO NGÀNH (GROUP) =================
+        # Ví dụ: "tất cả các sách liên quan công nghệ thông tin",
+        #        "liệt kê sách ngành CNTT", "danh sách sách CNTT"...
+        group_keywords = [
+            "tất cả", "tat ca",
+            "liệt kê", "liet ke",
+            "danh sách", "danh sach",
+            "sách liên quan", "sach lien quan",
+            "thuộc ngành", "thuoc nganh",
+            "ngành", "nganh"
+        ]
+
+        is_group_query = any(k in text for k in group_keywords)
+
+        if is_group_query and major_names:
+            matched_major, _ = fuzzy_best_match(text, major_names, threshold=55)
+            if matched_major:
+                books = [b for b in all_books if normalize_vi(b[5]) == normalize_vi(matched_major)]
                 conn.close()
 
                 if not books:
-                    return f"Ngành {name} hiện chưa có sách."
+                    return f"Ngành **{matched_major}** hiện chưa có sách trong hệ thống."
 
+                # Nhờ LLM format câu trả lời từ danh sách sách ngành đó
+                llm_ans = _llm_format_books_answer(
+                    text_raw, books, mode="major", extra_label=matched_major
+                )
+                if llm_ans:
+                    return llm_ans
+
+                # Fallback: format cứng
                 block = "\n".join(
                     f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}"
-                    for n, a, y, q, s in books
+                    for n, a, y, q, s, _ in books
                 )
-                return f"Danh sách sách thuộc ngành **{name}**:\n\n{block}"
+                return f"Danh sách sách thuộc ngành **{matched_major}**:\n\n{block}"
 
-        # ========== 2) Kiểm tra user hỏi TÁC GIẢ ==========
-        cur.execute("SELECT DISTINCT author FROM books")
-        authors = [r[0].lower().strip() for r in cur.fetchall()]
+        # ================= 1) ƯU TIÊN TÊN SÁCH =================
+        matched_book, _ = fuzzy_best_match(text, book_names, threshold=60)
+        if matched_book:
+            # Lọc tất cả bản ghi có tên sách match (phòng khi trùng tên)
+            books = [b for b in all_books if b[0] == matched_book]
+            conn.close()
 
-        for a in authors:
-            if a in text or text in a:
-                cur.execute("""
-                    SELECT name, year, quantity, status
-                    FROM books
-                    WHERE lower(author) = ?
-                """, (a,))
-                books = cur.fetchall()
-                conn.close()
+            llm_ans = _llm_format_books_answer(
+                text_raw, books, mode="book", extra_label=matched_book
+            )
+            if llm_ans:
+                return llm_ans
 
-                if not books:
-                    return f"Tác giả {a} chưa có sách trong hệ thống."
-
-                block = "\n".join(
-                    f"- {n}, {y}, SL: {q}, Trạng thái: {s}"
-                    for n, y, q, s in books
-                )
-                return f"Các sách của tác giả **{a}**:\n\n{block}"
-
-        # ========== 3) Kiểm tra user nhập TÊN SÁCH ==========
-        cur.execute("""
-            SELECT name, author, year, quantity, status, major_id
-            FROM books
-        """)
-        rows = cur.fetchall()
-
-        for n, a, y, q, s, m in rows:
-            if text == n.lower().strip():
-                # Tìm tên ngành
-                cur.execute("SELECT name FROM majors WHERE major_id = ?", (m,))
-                major_name = cur.fetchone()
-                major_label = major_name[0] if major_name else "Không rõ"
-
-                conn.close()
-                return (
-                    f"**Thông tin sách:**\n"
-                    f"- Tên: {n}\n"
-                    f"- Tác giả: {a}\n"
-                    f"- Năm XB: {y}\n"
-                    f"- Số lượng: {q}\n"
-                    f"- Trạng thái: {s}\n"
-                    f"- Ngành: {major_label}"
-                )
-
-        # ========== 4) Nếu không trùng gì → dùng LLM trích keyword ==========
-        extract_prompt = f"""
-Bạn là trợ lý thư viện.
-Nhiệm vụ: trích TÊN SÁCH hoặc TÊN TÁC GIẢ từ câu hỏi sau.
-
-Chỉ trả về:
-- Hoặc 1 tên sách
-- Hoặc 1 tên tác giả
-- Nếu không tìm thấy → trả rỗng
-
-Câu hỏi: "{user_message}"
-"""
-
-        payload = {
-            "model": OLLAMA_MODEL,
-            "prompt": extract_prompt,
-            "stream": False,
-            "options": {"temperature": 0.0, "num_predict": 50}
-        }
-        r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=OLLAMA_TIMEOUT)
-        key = (r.json().get("response") or "").split("\n")[0].strip()
-        key = key.lower()
-
-        if not key:
-            return "Không tìm thấy thông tin phù hợp."
-
-        # ========== 5) Tìm theo tên sách gần đúng ==========
-        cur = sqlite3.connect(FAQ_DB_PATH).cursor()
-        cur.execute("""
-            SELECT name, author, year, quantity, status, major_id
-            FROM books
-            WHERE lower(name) LIKE ?
-        """, (f"%{key}%",))
-        book_rows = cur.fetchall()
-
-        if book_rows:
-            n, a, y, q, s, m = book_rows[0]
-            cur.execute("SELECT name FROM majors WHERE major_id = ?", (m,))
-            major = cur.fetchone()
-            major_label = major[0] if major else "Không rõ"
-
+            # Fallback: format cứng 1 cuốn
+            n, a, y, q, s, mj = books[0]
+            major_label = mj or "Không rõ"
             return (
                 f"**Thông tin sách:**\n"
                 f"- Tên: {n}\n"
@@ -974,11 +969,62 @@ Câu hỏi: "{user_message}"
                 f"- Ngành: {major_label}"
             )
 
-        # Không tìm thấy gì cả
-        return f"Không tìm thấy sách liên quan tới: **{key}**"
+        # ================= 2) TÁC GIẢ =================
+        matched_author, _ = fuzzy_best_match(text, author_names, threshold=70)
+        if matched_author:
+            books = [b for b in all_books if normalize_vi(b[1]) == normalize_vi(matched_author)]
+            conn.close()
+
+            if not books:
+                return f"Tác giả **{matched_author}** hiện chưa có sách trong hệ thống."
+
+            llm_ans = _llm_format_books_answer(
+                text_raw, books, mode="author", extra_label=matched_author
+            )
+            if llm_ans:
+                return llm_ans
+
+            block = "\n".join(
+                f"- {n}, {y}, SL: {q}, Trạng thái: {s}"
+                for n, _, y, q, s, _ in books
+            )
+            return f"Các sách của tác giả **{matched_author}**:\n\n{block}"
+
+        # ================= 3) NGÀNH (khi không có group_keyword) =================
+        if major_names:
+            matched_major, _ = fuzzy_best_match(text, major_names, threshold=65)
+        else:
+            matched_major = None
+
+        if matched_major:
+            books = [b for b in all_books if normalize_vi(b[5]) == normalize_vi(matched_major)]
+            conn.close()
+
+            if not books:
+                return f"Ngành **{matched_major}** hiện chưa có sách trong hệ thống."
+
+            llm_ans = _llm_format_books_answer(
+                text_raw, books, mode="major", extra_label=matched_major
+            )
+            if llm_ans:
+                return llm_ans
+
+            block = "\n".join(
+                f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}"
+                for n, a, y, q, s, _ in books
+            )
+            return f"Danh sách sách thuộc ngành **{matched_major}**:\n\n{block}"
+
+        # ================= 4) Không khớp gì =================
+        conn.close()
+        return "Hiện mình chưa tìm được sách phù hợp trong danh mục, bạn thử ghi rõ tên sách, tác giả hoặc ngành hơn một chút nhé."
 
     except Exception as e:
         return f"[LỖI books] {e}"
+
+
+
+
 
 
 
