@@ -203,122 +203,6 @@ def ollama_alive() -> bool:
     except Exception:
         return False
         
-def process_message(sentence: str) -> str:
-    sentence = (sentence or "").strip()
-    if not sentence:
-        return "Xin lỗi, mình chưa hiểu ý bạn."
-
-    reply: Optional[str] = None
-    tag_to_log: Optional[str] = None
-    confidence: float = 0.0
-
-    # 1) Thử dùng Ollama + FAQ (Notion → SQLite) để trả lời theo kịch bản
-    if ollama_alive():
-        try:
-            # 1.1) Phân loại Category (Intent) bằng LLM
-            category = classify_category(sentence)
-            tag_to_log = category  # log intent = category
-
-            # 1.2) Lấy danh sách FAQ trong category đó từ bảng faq
-            conn_faq = sqlite3.connect(FAQ_DB_PATH)   # 👉 mở faq.db, không dùng ensure_main_db()
-            cur_faq = conn_faq.cursor()
-            cur_faq.execute("""
-                SELECT question, answer
-                FROM faq
-                WHERE category = ?
-                AND (approved = 1 OR approved IS NULL)
-            """, (category,))
-            rows = cur_faq.fetchall()
-            conn_faq.close()
-
-
-            if rows:
-                # 1.3) Ghép block Q/A cho LLM đọc và chọn câu trả lời
-                faq_block_lines = []
-                for idx, (q, a) in enumerate(rows, start=1):
-                    q = (q or "").strip()
-                    a = (a or "").strip()
-                    faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
-                faq_block = "\n\n".join(faq_block_lines)
-
-                answer_prompt = (
-                    "Bạn là chatbot của Thư viện.\n"
-                    f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
-                    f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
-                    f"{faq_block}\n\n"
-                    "NHIỆM VỤ:\n"
-                    "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
-                    "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
-                    "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
-                    "4. Nếu không có Answer nào phù hợp, hãy nói: "
-                    "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
-                    "Bây giờ hãy trả lời người dùng:"
-                )
-
-                payload = {
-                    "model": OLLAMA_MODEL,
-                    "prompt": answer_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.2,
-                        "num_predict": 200
-                    }
-                }
-
-                r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
-                                  json=payload, timeout=OLLAMA_TIMEOUT)
-                if r.status_code == 200:
-                    reply_llm = (r.json().get("response") or "").strip()
-                    if reply_llm:
-                        reply = reply_llm
-                        confidence = 0.9  # tạm cho cao, sau này bạn có thể tinh chỉnh
-        except Exception as e:
-            print("[process_message] FAQ/LLM error:", e)
-
-    # 2) Fallback: nếu vẫn chưa có câu trả lời, trả mặc định
-    if reply is None or not reply.strip():
-        reply = "Xin lỗi, mình chưa hiểu ý bạn."
-        confidence = 0.0
-        # tag_to_log giữ nguyên (có thể là None hoặc category đoán được)
-
-    # 3) Append thêm câu cho mượt, dùng hàm cũ (nếu bật)
-    if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
-        extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
-        if extra:
-            reply = f"{reply.strip()} {extra.strip()}"
-
-    # 4) Ghi SQLite (bảng conversations) như trước
-    conn = ensure_main_db()
-    cur  = conn.cursor()
-    cur.execute(
-        "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) "
-        "VALUES (?,?,?,?,?)",
-        (sentence, reply, tag_to_log, confidence, _now()),
-    )
-    conn.commit()
-    conn.close()
-
-    # 5) Ghi thêm vào faq.db (inbox) như cũ
-    try:
-        log_question_for_notion(f"User: {sentence}\nBot: {reply}")
-    except Exception as e:
-        print(f"[Notion inbox] Lỗi ghi faq.db: {e}")
-
-    # 6) Đẩy Notion (không chặn luồng chat) – giữ logic cũ
-    should_push = (
-        LOG_ALL_QUESTIONS
-        or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
-        or confidence < CONF_THRESHOLD
-        or tag_to_log is None
-    )
-    if should_push:
-        try:
-            threading.Thread(target=push_to_notion, args=(sentence, reply), daemon=True).start()
-        except Exception as e:
-            print("Notion push error:", e)
-
-    return reply
-
 
 
 def _dns_ok(host: str, timeout_s: float = 3.0) -> bool:
@@ -715,48 +599,459 @@ def get_all_categories():
     # trả về list tên categories, loại bỏ None, rỗng
     cats = [ (r[0] or "").strip() for r in rows ]
     cats = [c for c in cats if c]
+    cats.extend(["Thông tin ngành", "Tra cứu sách"])
     return sorted(set(cats))
+def get_all_major_names():
+    conn = sqlite3.connect(FAQ_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM majors")
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0].strip().lower() for r in rows]
+
+
+
+# def classify_category(user_message: str) -> str:
+#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+#     msg = user_message.lower().strip()
+
+#     categories = get_all_categories()
+#     # ghép thành bullet list
+#     bullet = "\n".join(f"- {c}" for c in categories)
+
+#     system_prompt = (
+#         "Bạn là trợ lý ảo của Thư viện.\n"
+#         "Nhiệm vụ: Đọc câu hỏi của người dùng và CHỈ TRẢ VỀ TÊN MỘT Category "
+#         "trong danh sách sau (phải chọn đúng 1):\n\n"
+#         f"{bullet}\n\n"
+#         "- \"Thông tin ngành\": câu hỏi về ngành đào tạo, tên ngành, mã ngành, mô tả ngành, "
+#         "số ngành, ngành nào có đào tạo...\n"
+#         "- \"Tra cứu sách\": câu hỏi về tên sách, danh sách sách, sách thuộc ngành nào, "
+#         "sách còn hay hết...\n"
+#         "Nếu câu hỏi chỉ là tên một ngành (ví dụ: \"Công nghệ thông tin\", \"Y học\"), "
+#         "thì chọn \"Thông tin ngành\".\n"
+#         "Nếu không chắc chắn -> chọn Category có vẻ gần nhất. "
+#         "Nếu hoàn toàn không phù hợp -> chọn 'Chưa phân loại' nếu có.\n\n"
+#         "Hãy TRẢ VỀ duy nhất tên Category, không giải thích thêm."
+#     )
+
+
+#     user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
+
+#     payload = {
+#         "model": OLLAMA_MODEL,
+#         "prompt": system_prompt + "\n\n" + user_prompt,
+#         "stream": False,
+#         "options": {
+#             "temperature": 0.0,
+#             "num_predict": 32
+#         }
+#     }
+
+#     try:
+#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+#         resp = (r.json().get("response") or "").strip()
+#         cat = resp.splitlines()[0].strip()
+#         return cat or "Chưa phân loại"
+#     except Exception as e:
+#         print("[Category] Error:", e)
+#         return "Chưa phân loại"
+    
+def answer_from_majors(user_message: str) -> str:
+    try:
+        # --- 1. Trích tên ngành ---
+        extract_prompt = f"""
+Bạn là trợ lý thư viện.
+Hãy trích tên NGÀNH từ câu hỏi sau.
+Nếu không tìm thấy ngành → trả về rỗng.
+
+Câu hỏi: "{user_message}"
+
+Chỉ trả về tên ngành (vd: Công nghệ thông tin, Kinh tế, CNTT).
+Không giải thích thêm.
+"""
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": extract_prompt,
+            "stream": False,
+            "options": {"temperature": 0.0, "num_predict": 50}
+        }
+        r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=OLLAMA_TIMEOUT)
+
+        major_key = (r.json().get("response") or "").strip().split("\n")[0]
+        major_key = re.sub(r'[^0-9a-zA-ZÀ-ỹ\s]', '', major_key)
+
+        if not major_key:
+            return "Mình chưa xác định được ngành trong câu hỏi."
+
+        # --- 2. Tìm ngành trong bảng majors ---
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name, major_id, description
+            FROM majors
+            WHERE name LIKE ? OR major_id LIKE ?
+        """, (f"%{major_key}%", f"%{major_key}%"))
+
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return f"Không tìm thấy ngành liên quan: {major_key}"
+
+        # format
+        text = "\n".join(f"- {name} (Mã: {mid}): {desc}" for name, mid, desc in rows)
+
+        # --- 3. Viết câu trả lời ---
+        answer_prompt = f"""
+Người dùng hỏi: "{user_message}"
+Dưới đây là thông tin ngành tìm được:
+
+{text}
+
+Hãy trả lời tự nhiên, KHÔNG bịa thêm.
+"""
+        payload2 = {
+            "model": OLLAMA_MODEL,
+            "prompt": answer_prompt,
+            "stream": False,
+            "options": {"temperature": 0.2, "num_predict": 150}
+        }
+        rr = requests.post(f"{OLLAMA_URL}/api/generate", json=payload2, timeout=OLLAMA_TIMEOUT)
+        return (rr.json().get("response") or "").strip()
+
+    except Exception as e:
+        return f"[LỖI majors] {e}"
+
+
+# def classify_category(user_message: str) -> str:
+#     """
+#     Phân loại ý định (Intent) dựa trên ý nghĩa, không dùng keyword matching.
+#     Dùng LLM để suy luận ngữ nghĩa – hiểu cả sai chính tả, viết tắt, câu hỏi thiếu.
+#     """
+
+#     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    
+#     categories = get_all_categories()
+#     if not categories:
+#         return "Chưa phân loại"
+
+#     bullet = "\n".join(f"- {c}" for c in categories)
+
+#     system_prompt = f"""
+# Bạn là trợ lý ảo của Thư viện. Bạn phân tích Ý NGHĨA câu hỏi, không dựa trên từ khóa.
+# Nhiệm vụ: chọn CHÍNH XÁC 1 category phù hợp nhất từ danh sách sau:
+
+# {bullet}
+
+# === HƯỚNG DẪN HIỂU Ý (KHÔNG DÙNG KEYWORD) ===
+# - "Thông tin ngành": khi người dùng nhắc tên ngành (CNTT, Công nghệ thông tin, Y học…)
+#   kể cả họ chỉ viết tên ngành CHỮNG KHÔNG có từ “ngành”.
+#   Hiểu cả sai chính tả: "công nghê thông tin", "C.N.T.T", "cnt"
+#   Các câu dạng:
+#     • "CNTT là gì?"
+#     • "Ngành đó có những môn nào?"
+#     • "Kinh tế học ra làm gì?"
+#     • "khối y có bao nhiêu ngành?"
+# - "Tra cứu sách": khi người dùng hỏi về danh sách sách, tên sách, sách của ngành nào,
+#   sách còn không, sách tác giả nào…
+#   Hiểu cả câu không rõ:
+#     • "Có sách AI không?"
+#     • "liệt kê sách CNTT"
+#     • "Python còn không?"
+#     • "mạng máy tính có bao nhiêu bản?"
+# - Nếu user chỉ nhập 1 từ hoặc cụm từ:
+#   → Nếu giống một ngành → chọn "Thông tin ngành"
+#   → Nếu giống tên sách → chọn "Tra cứu sách"
+
+# - Nếu câu hỏi không thuộc 2 nhóm trên, chọn category có vẻ phù hợp nhất
+# - Nếu hoàn toàn không chắc → trả về: "Chưa phân loại"
+
+# CHỈ TRẢ VỀ DUY NHẤT TÊN CATEGORY.
+# Không giải thích thêm.
+# """
+
+#     user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
+
+#     payload = {
+#         "model": OLLAMA_MODEL,
+#         "prompt": system_prompt + "\n" + user_prompt,
+#         "stream": False,
+#         "options": {"temperature": 0.0, "num_predict": 32},
+#     }
+
+#     try:
+#         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+#         raw = (r.json().get("response") or "").strip()
+#         cat = raw.splitlines()[0].strip()
+#         return cat or "Chưa phân loại"
+#     except:
+#         return "Chưa phân loại"
 def classify_category(user_message: str) -> str:
+    """
+    Phân loại intent 100% theo NGỮ NGHĨA bằng LLM.
+    Không dùng keyword.
+    Hiểu cả khi user chỉ gõ tên ngành hoặc tên sách.
+    """
     url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    msg = user_message.strip()
 
-    categories = get_all_categories()
-    if not categories:
-        return "Chưa phân loại"
+    # Lấy danh sách ngành từ DB → tự học
+    conn = sqlite3.connect(FAQ_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM majors")
+    major_names = [r[0] for r in cur.fetchall()]
+    conn.close()
 
-    # ghép thành bullet list
-    bullet = "\n".join(f"- {c}" for c in categories)
+    bullet = "\n".join(f"- {m}" for m in major_names)
 
-    system_prompt = (
-        "Bạn là trợ lý ảo của Thư viện.\n"
-        "Nhiệm vụ: Đọc câu hỏi của người dùng và CHỈ TRẢ VỀ TÊN MỘT Category "
-        "trong danh sách sau (phải chọn đúng 1):\n\n"
-        f"{bullet}\n\n"
-        "Nếu không chắc chắn -> chọn Category có vẻ gần nhất. "
-        "Nếu hoàn toàn không phù hợp -> chọn một Category tên gần nhất là 'Chưa phân loại' nếu có.\n\n"
-        "Hãy TRẢ VỀ duy nhất tên Category, không giải thích thêm."
-    )
+    system_prompt = f"""
+Bạn là trợ lý thư viện.
+Nhiệm vụ: Phân tích câu của người dùng và chọn chính xác 1 trong 2 category sau:
 
-    user_prompt = f"Câu hỏi người dùng: \"{user_message}\""
+1) "Thông tin ngành"  → khi người dùng:
+    - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
+    - Viết sai chính tả nhưng gần giống tên ngành
+    - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
+
+2) "Tra cứu sách" → khi người dùng:
+    - Hỏi về sách, tên sách, liệt kê sách
+    - Hỏi sách còn không, sách ngành nào
+    - Hỏi sách theo tác giả, năm xuất bản,…
+
+=== Danh sách ngành hợp lệ ===
+{bullet}
+
+QUY TẮC:
+- Nếu user chỉ gõ 1 từ/cụm từ và giống với **tên ngành** → chọn "Thông tin ngành".
+- Nếu user hỏi loại sách / tên sách → chọn "Tra cứu sách".
+- Trả về duy nhất 1 trong 2 chuỗi:
+    Thông tin ngành
+    Tra cứu sách
+"""
 
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": system_prompt + "\n\n" + user_prompt,
+        "prompt": system_prompt + "\n\nCâu của user: " + msg,
         "stream": False,
-        "options": {
-            "temperature": 0.0,
-            "num_predict": 32
-        }
+        "options": {"temperature": 0.0, "num_predict": 32}
     }
 
     try:
         r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-        resp = (r.json().get("response") or "").strip()
-        cat = resp.splitlines()[0].strip()
-        return cat or "Chưa phân loại"
+        raw = (r.json().get("response") or "").strip().splitlines()[0]
+        return raw if raw in ["Thông tin ngành", "Tra cứu sách"] else "Tra cứu sách"
+    except:
+        return "Tra cứu sách"
+
+
+
+def answer_from_books(user_message: str) -> str:
+    try:
+        text = user_message.strip().lower()
+
+        # ========== 1) Kiểm tra xem user nhập CÓ PHẢI TÊN NGÀNH không ==========
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name, major_id FROM majors")
+        majors = cur.fetchall()
+
+        # So trùng trực tiếp trước (ưu tiên mạnh nhất)
+        for name, major_id in majors:
+            if text == name.lower().strip():
+                # → User nhập đúng tên ngành → lấy toàn bộ sách
+                cur.execute("""
+                    SELECT name, author, year, status
+                    FROM books
+                    WHERE major_id = ?
+                """, (major_id,))
+                books = cur.fetchall()
+                conn.close()
+
+                if not books:
+                    return f"Ngành {name} hiện chưa có sách."
+
+                block = "\n".join(
+                    f"- {n} – {a}, {y} – {s}" for n, a, y, s in books
+                )
+                return f"Danh sách sách thuộc ngành **{name}**:\n\n{block}"
+
+        # ========== 2) Nếu KHÔNG phải tên ngành → dùng LLM trích từ khóa ==========
+        extract_prompt = f"""
+Bạn là trợ lý thư viện.
+Hãy trích từ khóa là TÊN SÁCH trong câu hỏi sau (KHÔNG phải mô tả ngành).
+Nếu không chắc → trả về rỗng.
+
+Câu hỏi: "{user_message}"
+"""
+
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": extract_prompt,
+            "stream": False,
+            "options": {"temperature": 0.0, "num_predict": 50}
+        }
+        r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=OLLAMA_TIMEOUT)
+
+        key = (r.json().get("response") or "").strip().split("\n")[0]
+        key = re.sub(r'[^0-9a-zA-ZÀ-ỹ\s]', '', key)
+
+        if not key:
+            return "Không tìm thấy sách liên quan."
+
+        # ========== 3) Tìm theo tên sách ==========
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name, author, year, status
+            FROM books
+            WHERE lower(name) LIKE ?
+        """, (f"%{key.lower()}%",))
+        books = cur.fetchall()
+        conn.close()
+
+        if not books:
+            return f"Không tìm thấy sách liên quan: {key}"
+
+        block = "\n".join(
+            f"- {n} – {a}, {y} – {s}" for n, a, y, s in books
+        )
+
+        return f"Danh sách sách tìm được theo từ khóa **{key}**:\n\n{block}"
+
     except Exception as e:
-        print("[Category] Error:", e)
-        return "Chưa phân loại"
-    
+        return f"[LỖI books] {e}"
+
+
+def process_message(sentence: str) -> str:
+    sentence = (sentence or "").strip()
+    if not sentence:
+        return "Xin lỗi, mình chưa hiểu ý bạn."
+
+    reply: Optional[str] = None
+    tag_to_log: Optional[str] = None
+    confidence: float = 0.0
+
+    if ollama_alive():
+        try:
+            # 1) Phân loại Category (Intent) bằng LLM
+            category = classify_category(sentence)
+            tag_to_log = category  # luôn log intent = category
+
+            # 2) Rẽ nhánh theo category lớn
+            
+            if category == "Thông tin ngành":
+                major_reply = answer_from_majors(sentence)
+                if major_reply:
+                    reply = major_reply
+                    tag_to_log = category
+
+            elif category == "Tra cứu sách":
+                book_reply = answer_from_books(sentence)
+                if book_reply:
+                    reply = book_reply
+                    tag_to_log = category
+            else:
+                # 3) Mặc định: dùng FAQ (Notion → faq.db)
+                conn_faq = sqlite3.connect(FAQ_DB_PATH)   # faq.db
+                cur_faq = conn_faq.cursor()
+                cur_faq.execute("""
+                    SELECT question, answer
+                    FROM faq
+                    WHERE category = ?
+                      AND (approved = 1 OR approved IS NULL)
+                """, (category,))
+                rows = cur_faq.fetchall()
+                conn_faq.close()
+
+                if rows:
+                    # Ghép block Q/A cho LLM đọc và trả lời
+                    faq_block_lines = []
+                    for idx, (q, a) in enumerate(rows, start=1):
+                        q = (q or "").strip()
+                        a = (a or "").strip()
+                        faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
+                    faq_block = "\n\n".join(faq_block_lines)
+
+                    answer_prompt = (
+                        "Bạn là chatbot của Thư viện.\n"
+                        f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
+                        f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
+                        f"{faq_block}\n\n"
+                        "NHIỆM VỤ:\n"
+                        "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
+                        "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
+                        "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
+                        "4. Nếu không có Answer nào phù hợp, hãy nói: "
+                        "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
+                        "Bây giờ hãy trả lời người dùng:"
+                    )
+
+                    payload = {
+                        "model": OLLAMA_MODEL,
+                        "prompt": answer_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.2,
+                            "num_predict": 200
+                        }
+                    }
+
+                    r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                                      json=payload, timeout=OLLAMA_TIMEOUT)
+                    if r.status_code == 200:
+                        reply_llm = (r.json().get("response") or "").strip()
+                        if reply_llm:
+                            reply = reply_llm
+                            confidence = 0.9  # tạm gán cao, sau chỉnh sau
+        except Exception as e:
+            print("[process_message] FAQ/LLM error:", e)
+
+    # 2) Fallback: nếu vẫn chưa có câu trả lời, trả mặc định
+    if reply is None or not reply.strip():
+        reply = "Xin lỗi, mình chưa hiểu ý bạn."
+        confidence = 0.0
+
+    # 3) Append thêm câu cho mượt, dùng hàm cũ (nếu bật)
+    if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
+        extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
+        if extra:
+            reply = f"{reply.strip()} {extra.strip()}"
+        
+
+
+    # 4) Ghi SQLite (bảng conversations) như trước
+    conn = ensure_main_db()
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) "
+        "VALUES (?,?,?,?,?)",
+        (sentence, reply, tag_to_log, confidence, _now()),
+    )
+    conn.commit()
+    conn.close()
+
+    # 5) Ghi thêm vào faq.db (inbox) như cũ
+    try:
+        log_question_for_notion(f"User: {sentence}\nBot: {reply}")
+    except Exception as e:
+        print(f"[Notion inbox] Lỗi ghi faq.db: {e}")
+
+    # 6) Đẩy Notion (không chặn luồng chat) – giữ logic cũ
+    should_push = (
+        LOG_ALL_QUESTIONS
+        or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
+        or confidence < CONF_THRESHOLD
+        or tag_to_log is None
+    )
+    if should_push:
+        try:
+            threading.Thread(target=push_to_notion, args=(sentence, reply), daemon=True).start()
+        except Exception as e:
+            print("Notion push error:", e)
+
+    return reply
+
 # ============== CLI ==============
 def _test_push_notion_once():
     token, dbid, mode, base = _resolve_notion_env()
