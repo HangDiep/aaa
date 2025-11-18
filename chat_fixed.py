@@ -1,4 +1,5 @@
 import os, random, json, sqlite3, re, time
+os.environ["TRANSFORMERS_NO_TF"] = "1"
 # chat_fixed.py
 import numpy as np
 import torch, requests
@@ -15,7 +16,21 @@ import socket
 from datetime import datetime
 import rapidfuzz
 from rapidfuzz import fuzz
+from sentence_transformers import SentenceTransformer
+import os
+import logging
 
+# Ẩn bớt log của TensorFlow
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # 0=full, 1=warning+, 2=error+, 3=fatal
+
+
+# Tắt progress bar của HuggingFace Hub (tải model)
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+# Giảm log của transformers & sentence-transformers
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 
 # ============== CẤU HÌNH ==============
@@ -58,6 +73,19 @@ LOG_ALL_QUESTIONS = True
 
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
+
+import unicodedata
+
+def normalize_vi(text: str) -> str:
+    text = (text or "").lower().strip()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", text)
+# ========== EMBEDDING MODEL ==========
+try:
+    embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
+except Exception:
+    embed_model = None  # fallback
 
 # ============== DB helpers ==============
 def ensure_main_db() -> sqlite3.Connection:
@@ -678,136 +706,11 @@ Hãy trả lời tự nhiên, KHÔNG bịa thêm.
         return f"[LỖI majors] {e}"
 
 
-def classify_category(user_message: str) -> str:
-    """
-    Phân loại intent:
-    - Nếu giống tên SÁCH hoặc TÁC GIẢ trong books -> Tra cứu sách (không cần LLM)
-    - Ngược lại mới hỏi LLM để chọn giữa "Thông tin ngành" / "Tra cứu sách"
-    """
-    msg = (user_message or "").strip()
-    if not msg:
-        return "Tra cứu sách"
-
-    # --- 0) ƯU TIÊN: so fuzzy với tên SÁCH và TÁC GIẢ trong DB ---
-    try:
-        conn = sqlite3.connect(FAQ_DB_PATH)
-        cur = conn.cursor()
-
-        cur.execute("SELECT name, author FROM books")
-        rows = cur.fetchall()
-        conn.close()
-
-        book_names   = [r[0] for r in rows if r[0]]
-        author_names = [r[1] for r in rows if r[1]]
-
-        # Nếu giống tên sách → chắc chắn là Tra cứu sách
-        book_match, _ = fuzzy_best_match(msg, book_names, threshold=60)
-        if book_match:
-            # print("[DEBUG] classify: match book -> Tra cứu sách", book_match)
-            return "Tra cứu sách"
-
-        # Nếu giống tác giả → Tra cứu sách
-        author_match, _ = fuzzy_best_match(msg, author_names, threshold=70)
-        if author_match:
-            # print("[DEBUG] classify: match author -> Tra cứu sách", author_match)
-            return "Tra cứu sách"
-
-    except Exception as e:
-        print("[classify_category] book fuzzy error:", e)
-        # nếu lỗi DB thì bỏ qua, xuống LLM
-
-    # --- 1) Nếu không giống sách/tác giả → dùng LLM như cũ cho ngành/sách ---
-    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
-
-    # Lấy danh sách ngành từ DB → cho LLM biết
-    try:
-        conn = sqlite3.connect(FAQ_DB_PATH)
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM majors")
-        major_names = [r[0] for r in cur.fetchall()]
-        conn.close()
-    except Exception:
-        major_names = []
-
-    bullet = "\n".join(f"- {m}" for m in major_names)
-
-    system_prompt = f"""
-Bạn là trợ lý thư viện. Nhiệm vụ: Phân tích câu của người dùng và chọn chính xác 1 trong 2 category sau:
-
-1) "Thông tin ngành"  → khi người dùng:
-   - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
-   - Viết sai chính tả nhưng gần giống tên ngành
-   - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
-
-2) "Tra cứu sách" → khi người dùng:
-   - Hỏi về sách, tên sách, liệt kê sách
-   - Hỏi sách còn không, sách ngành nào
-   - Hỏi sách theo tác giả, năm xuất bản,…
-
-=== Danh sách ngành hợp lệ (tham khảo) ===
-{bullet}
-
-QUY TẮC:
-- Nếu user chỉ gõ 1 từ/cụm từ và giống với tên ngành → chọn "Thông tin ngành".
-- Nếu user hỏi về sách, tài liệu, hoặc có vẻ là tên sách → chọn "Tra cứu sách".
-
-Trả về DUY NHẤT một trong 2 chuỗi:
-- Thông tin ngành
-- Tra cứu sách
-"""
-
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": system_prompt + "\n\nCâu của user: " + msg,
-        "stream": False,
-        "options": {"temperature": 0.0, "num_predict": 32},
-    }
-
-    try:
-        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
-        raw = (r.json().get("response") or "").strip().splitlines()[0]
-        if raw in ["Thông tin ngành", "Tra cứu sách"]:
-            return raw
-        return "Tra cứu sách"
-    except Exception as e:
-        print("[classify_category] LLM error:", e)
-        return "Tra cứu sách"
-
-
-import unicodedata
-
-def normalize_vi(text: str) -> str:
-    text = (text or "").lower().strip()
-    text = unicodedata.normalize("NFD", text)
-    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
-    return re.sub(r"\s+", " ", text)
-
-def fuzzy_best_match(text: str, candidates: list[str], threshold: int = 70):
-    """
-    Trả về đúng 2 giá trị: (best_string, score).
-    Nếu không có match đủ ngưỡng → (None, 0).
-    """
-    norm_text = normalize_vi(text)
-    best = None
-    best_score = 0
-
-    for c in candidates:
-        norm_c = normalize_vi(c)
-        score = fuzz.partial_ratio(norm_text, norm_c)
-        if score > best_score:
-            best_score = score
-            best = c
-
-    if best_score >= threshold:
-        return best, best_score
-    return None, 0
-
-
 def _llm_format_books_answer(question: str, books: list[tuple], mode: str, extra_label: str = "") -> str:
     """
     Dùng Ollama để viết câu trả lời cho đẹp, NHƯNG chỉ dựa trên list `books`.
     books: list tuple (name, author, year, quantity, status, major_name)
-    mode: 'book' | 'author' | 'major'
+    mode: 'book' | 'author' | 'major' | 'list'
     extra_label: tên tác giả / tên ngành / tên sách gốc nếu muốn nhắc lại
     """
     if not ollama_alive() or not books:
@@ -827,8 +730,10 @@ def _llm_format_books_answer(question: str, books: list[tuple], mode: str, extra
         mode_desc = "một hoặc vài CUỐN SÁCH cụ thể mà người dùng đang hỏi."
     elif mode == "author":
         mode_desc = f"các sách của TÁC GIẢ {extra_label}."
-    else:
+    elif mode == "major":
         mode_desc = f"các sách thuộc NGÀNH {extra_label}."
+    else:  # 'list' hoặc bất kỳ
+        mode_desc = "một DANH SÁCH các sách liên quan đến câu hỏi của người dùng."
 
     system_prompt = f"""
 Bạn là trợ lý thư viện. Bạn sẽ được cung cấp:
@@ -874,155 +779,299 @@ Hãy trả lời, NHỚ: chỉ dùng thông tin trong danh sách trên.
     except Exception as e:
         print("[books-llm-format] Error:", e)
         return ""
+MAJOR_EMB = []       # danh sách vector
+MAJOR_META = []      # (name, major_id, description)
+def vector(txt: str):
+    if not embed_model:
+        return None
+    return embed_model.encode(txt, normalize_embeddings=True)
+def build_major_embedding_index():
+    global MAJOR_EMB, MAJOR_META
+
+    conn = sqlite3.connect(FAQ_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name, major_id, description FROM majors")
+    rows = cur.fetchall()
+    conn.close()
+
+    MAJOR_META = rows
+    MAJOR_EMB = [vector(r[0]) for r in rows]
+
+def search_majors_by_embedding(query: str, top_k=1):
+    if not embed_model or not MAJOR_EMB:
+        return []
+    qv = vector(query)
+    sims = np.dot(MAJOR_EMB, qv)
+    idx = np.argsort(sims)[::-1][:top_k]
+    return [(i, sims[i], MAJOR_META[i]) for i in idx]
+
+# ====== EMBEDDING CHO BOOKS (SEMANTIC SEARCH) ======
+EMB_MODEL_NAME_BOOKS = os.getenv(
+    "BOOK_EMB_MODEL",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # hoặc model khác bạn thích
+)
+
+print("[Books-Emb] Loading SentenceTransformer model:", EMB_MODEL_NAME_BOOKS)
+book_emb_model = SentenceTransformer(EMB_MODEL_NAME_BOOKS)
+
+# Cache: embeddings + dữ liệu thô của books
+BOOK_EMBS: np.ndarray | None = None   # shape (N_books, dim)
+BOOK_ROWS: list[tuple] | None = None  # [(name, author, year, qty, status, major_name), ...]
+
+
+def build_book_embedding_index() -> tuple[np.ndarray, list[tuple]]:
+    """
+    Đọc toàn bộ bảng books + majors và build index embedding cho SÁCH.
+    Chỉ build 1 lần, sau đó dùng lại từ cache.
+    """
+    global BOOK_EMBS, BOOK_ROWS
+
+    # Nếu đã build trước đó rồi thì dùng lại
+    if BOOK_EMBS is not None and BOOK_ROWS is not None:
+        return BOOK_EMBS, BOOK_ROWS
+
+    conn = sqlite3.connect(FAQ_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
+        FROM books b
+        LEFT JOIN majors m ON b.major_id = m.major_id
+    """)
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        dim = book_emb_model.get_sentence_embedding_dimension()
+        BOOK_EMBS = np.zeros((0, dim), dtype=np.float32)
+        BOOK_ROWS = []
+        return BOOK_EMBS, BOOK_ROWS
+
+    # Chuẩn bị text mô tả mỗi cuốn sách để embedding
+    texts = []
+    for (name, author, year, qty, status, major_name) in rows:
+        name = name or ""
+        author = author or ""
+        major_name = major_name or ""
+        year = str(year or "")
+        status = status or ""
+        t = (
+            f"Sách: {name}. Tác giả: {author}. Ngành: {major_name}. "
+            f"Năm: {year}. Chủ đề: {name} {major_name} {author}"
+        )
+        texts.append(t)
+
+    print(f"[Books-Emb] Building embeddings cho {len(texts)} sách...")
+    emb = book_emb_model.encode(
+        texts,
+        convert_to_numpy=True,
+        normalize_embeddings=True,  # để cosine = dot
+        show_progress_bar=False,
+    )
+
+    BOOK_EMBS = emb
+    BOOK_ROWS = rows
+    print("[Books-Emb] Done.")
+    return BOOK_EMBS, BOOK_ROWS
+
+
+def search_books_by_embedding(
+    query: str,
+    top_k: int = 10,
+    min_sim: float = 0.45,
+) -> list[tuple[tuple, float]]:
+    """
+    Tìm sách theo NGHĨA bằng cosine similarity.
+    Trả về list[(row, sim)] đã sort giảm dần.
+    row đúng cấu trúc:
+        (name, author, year, quantity, status, major_name)
+    """
+    emb, rows = build_book_embedding_index()
+    if emb.shape[0] == 0:
+        return []
+
+    q_vec = book_emb_model.encode(
+        [query],
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+    )[0]
+
+    sims = emb @ q_vec  # cosine vì đã normalize
+    idx_sorted = np.argsort(-sims)
+
+    results: list[tuple[tuple, float]] = []
+    for i in idx_sorted[:top_k]:
+        sim = float(sims[i])
+        if sim < min_sim:
+            continue
+        results.append((rows[i], sim))
+    return results
+
 
 def answer_from_books(user_message: str) -> str:
     """
-    Tra cứu sách dựa trên bảng books/majors (fuzzy, không bịa),
+    Tra cứu sách dựa trên EMBEDDING (semantic search),
     sau đó (nếu được) nhờ Ollama viết lại câu trả lời cho tự nhiên hơn.
+
+    Không dùng keyword, không dùng fuzzy cho BOOK nữa.
     """
     try:
         text_raw = (user_message or "").strip()
         if not text_raw:
             return "Mình chưa nhận được nội dung để tra cứu sách."
-        text = normalize_vi(text_raw)
 
-        conn = sqlite3.connect(FAQ_DB_PATH)
-        cur = conn.cursor()
-
-        # --- Lấy dữ liệu gốc ---
-        cur.execute("""
-            SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
-            FROM books b
-            LEFT JOIN majors m ON b.major_id = m.major_id
-        """)
-        all_books = cur.fetchall()  # [(name, author, year, qty, status, major_name), ...]
-
-        if not all_books:
-            conn.close()
-            return "Hiện thư viện chưa có dữ liệu sách trong hệ thống."
-
-        # Danh sách tên sách / tác giả / ngành để fuzzy
-        book_names = [b[0] for b in all_books]
-        author_names = list({b[1] for b in all_books if b[1]})
-        major_names = list({b[5] for b in all_books if b[5]})
-
-        # ================= 0) ƯU TIÊN CÂU HỎI THEO NGÀNH (GROUP) =================
-        # Ví dụ: "tất cả các sách liên quan công nghệ thông tin",
-        #        "liệt kê sách ngành CNTT", "danh sách sách CNTT"...
-        group_keywords = [
-            "tất cả", "tat ca",
-            "liệt kê", "liet ke",
-            "danh sách", "danh sach",
-            "sách liên quan", "sach lien quan",
-            "thuộc ngành", "thuoc nganh",
-            "ngành", "nganh"
-        ]
-
-        is_group_query = any(k in text for k in group_keywords)
-
-        if is_group_query and major_names:
-            matched_major, _ = fuzzy_best_match(text, major_names, threshold=55)
-            if matched_major:
-                books = [b for b in all_books if normalize_vi(b[5]) == normalize_vi(matched_major)]
-                conn.close()
-
-                if not books:
-                    return f"Ngành **{matched_major}** hiện chưa có sách trong hệ thống."
-
-                # Nhờ LLM format câu trả lời từ danh sách sách ngành đó
-                llm_ans = _llm_format_books_answer(
-                    text_raw, books, mode="major", extra_label=matched_major
-                )
-                if llm_ans:
-                    return llm_ans
-
-                # Fallback: format cứng
-                block = "\n".join(
-                    f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}"
-                    for n, a, y, q, s, _ in books
-                )
-                return f"Danh sách sách thuộc ngành **{matched_major}**:\n\n{block}"
-
-        # ================= 1) ƯU TIÊN TÊN SÁCH =================
-        matched_book, _ = fuzzy_best_match(text, book_names, threshold=60)
-        if matched_book:
-            # Lọc tất cả bản ghi có tên sách match (phòng khi trùng tên)
-            books = [b for b in all_books if b[0] == matched_book]
-            conn.close()
-
-            llm_ans = _llm_format_books_answer(
-                text_raw, books, mode="book", extra_label=matched_book
-            )
-            if llm_ans:
-                return llm_ans
-
-            # Fallback: format cứng 1 cuốn
-            n, a, y, q, s, mj = books[0]
-            major_label = mj or "Không rõ"
+        # Lấy top sách theo NGHĨA
+        results = search_books_by_embedding(text_raw, top_k=12, min_sim=0.45)
+        if not results:
             return (
-                f"**Thông tin sách:**\n"
-                f"- Tên: {n}\n"
-                f"- Tác giả: {a}\n"
-                f"- Năm XB: {y}\n"
-                f"- Số lượng: {q}\n"
-                f"- Trạng thái: {s}\n"
-                f"- Ngành: {major_label}"
+                "Hiện mình chưa tìm được sách phù hợp trong danh mục. "
+                "Bạn thử ghi rõ hơn tên sách, tác giả hoặc ngành nhé."
             )
 
-        # ================= 2) TÁC GIẢ =================
-        matched_author, _ = fuzzy_best_match(text, author_names, threshold=70)
-        if matched_author:
-            books = [b for b in all_books if normalize_vi(b[1]) == normalize_vi(matched_author)]
-            conn.close()
+        # Tách rows & similarity
+        rows = [r[0] for r in results]
+        sims = [r[1] for r in results]
 
-            if not books:
-                return f"Tác giả **{matched_author}** hiện chưa có sách trong hệ thống."
+        # Xem câu hỏi có dạng "liệt kê / tất cả" không
+        text_norm = normalize_vi(text_raw)
+        list_keywords = [
+            "tat ca", "tất cả",
+            "liet ke", "liệt kê",
+            "danh sach", "danh sách",
+            "sach lien quan", "sách liên quan",
+            "cac sach", "các sách",
+            "nhung sach", "những sách",
+        ]
+        is_list_query = any(k in text_norm for k in list_keywords)
 
+        # Nếu câu hỏi kiểu liệt kê → đưa list cho LLM
+        if is_list_query or len(rows) > 3:
+            books = rows  # list[(name, author, year, qty, status, major_name)]
             llm_ans = _llm_format_books_answer(
-                text_raw, books, mode="author", extra_label=matched_author
+                text_raw,
+                books,
+                mode="list",
             )
             if llm_ans:
                 return llm_ans
 
+            # Fallback: liệt kê cứng
             block = "\n".join(
-                f"- {n}, {y}, SL: {q}, Trạng thái: {s}"
-                for n, _, y, q, s, _ in books
+                f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}, Ngành: {mj or 'Không rõ'}"
+                for (n, a, y, q, s, mj) in books
             )
-            return f"Các sách của tác giả **{matched_author}**:\n\n{block}"
+            return f"Dưới đây là một số sách liên quan đến câu hỏi của bạn:\n\n{block}"
 
-        # ================= 3) NGÀNH (khi không có group_keyword) =================
-        if major_names:
-            matched_major, _ = fuzzy_best_match(text, major_names, threshold=65)
-        else:
-            matched_major = None
+        # Ngược lại: coi là hỏi 1 CUỐN SÁCH GẦN NHẤT
+        best_row = rows[0]
+        best_sim = sims[0]
 
-        if matched_major:
-            books = [b for b in all_books if normalize_vi(b[5]) == normalize_vi(matched_major)]
-            conn.close()
-
-            if not books:
-                return f"Ngành **{matched_major}** hiện chưa có sách trong hệ thống."
-
-            llm_ans = _llm_format_books_answer(
-                text_raw, books, mode="major", extra_label=matched_major
+        if best_sim < 0.5:
+            return (
+                "Mình chưa chắc sách nào phù hợp với câu hỏi này. "
+                "Bạn thử nêu rõ tên sách, tác giả hoặc mô tả chi tiết hơn nhé."
             )
-            if llm_ans:
-                return llm_ans
 
-            block = "\n".join(
-                f"- {n} – {a}, {y}, SL: {q}, Trạng thái: {s}"
-                for n, a, y, q, s, _ in books
-            )
-            return f"Danh sách sách thuộc ngành **{matched_major}**:\n\n{block}"
+        n, a, y, q, s, mj = best_row
+        major_label = mj or "Không rõ"
 
-        # ================= 4) Không khớp gì =================
-        conn.close()
-        return "Hiện mình chưa tìm được sách phù hợp trong danh mục, bạn thử ghi rõ tên sách, tác giả hoặc ngành hơn một chút nhé."
+        # Cho LLM format đẹp hơn (mode 'book')
+        llm_ans = _llm_format_books_answer(
+            text_raw,
+            [best_row],
+            mode="book",
+            extra_label=n,
+        )
+        if llm_ans:
+            return llm_ans
+
+        # Fallback: format cứng
+        return (
+            f"**Thông tin sách gần nhất với câu hỏi của bạn:**\n"
+            f"- Tên: {n}\n"
+            f"- Tác giả: {a}\n"
+            f"- Năm XB: {y}\n"
+            f"- Số lượng: {q}\n"
+            f"- Trạng thái: {s}\n"
+            f"- Ngành: {major_label}"
+        )
 
     except Exception as e:
-        return f"[LỖI books] {e}"
+        return f"[LỖI books-emb] {e}"
 
 
+
+
+def classify_category(user_message: str) -> str:
+    """
+    Phân loại intent 100% theo NGỮ NGHĨA bằng LLM.
+    Không dùng keyword, không dùng fuzzy.
+    Hiểu cả khi user chỉ gõ tên ngành hoặc tên sách.
+    Trả về một trong:
+    - "Thông tin ngành"
+    - "Tra cứu sách"
+    - hoặc tên category khác nằm trong bảng FAQ (nếu LLM suy ra)
+    """
+    msg = (user_message or "").strip()
+    if not msg:
+        return "Tra cứu sách"
+
+    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+
+    # Lấy danh sách ngành từ DB → cho LLM biết
+    try:
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM majors")
+        major_names = [r[0] for r in cur.fetchall()]
+        conn.close()
+    except Exception:
+        major_names = []
+
+    bullet = "\n".join(f"- {m}" for m in major_names)
+
+    system_prompt = f"""
+Bạn là trợ lý thư viện. Nhiệm vụ: phân tích câu của người dùng và chọn category phù hợp nhất.
+
+Có 2 category chính:
+1) "Thông tin ngành"  → khi người dùng:
+   - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
+   - Viết sai chính tả nhưng gần giống tên ngành
+   - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
+
+2) "Tra cứu sách" → khi người dùng:
+   - Hỏi về sách, tên sách, liệt kê sách
+   - Hỏi sách còn không, sách ngành nào
+   - Hỏi sách theo tác giả, năm xuất bản,…
+
+=== Danh sách ngành hợp lệ (tham khảo) ===
+{bullet}
+
+QUY TẮC:
+- Nếu user chỉ gõ 1 từ/cụm từ và giống với tên ngành → ưu tiên "Thông tin ngành".
+- Nếu user hỏi về sách, tài liệu, giáo trình → "Tra cứu sách".
+
+Hãy trả về DUY NHẤT một trong các chuỗi sau:
+- Thông tin ngành
+- Tra cứu sách
+"""
+
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": system_prompt + "\n\nCâu của user: " + msg,
+        "stream": False,
+        "options": {"temperature": 0.0, "num_predict": 32},
+    }
+
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        raw = (r.json().get("response") or "").strip().splitlines()[0]
+        if raw in ["Thông tin ngành", "Tra cứu sách"]:
+            return raw
+        # Nếu LLM trả linh tinh → mặc định coi là hỏi sách
+        return "Tra cứu sách"
+    except Exception as e:
+        print("[classify_category] LLM error:", e)
+        return "Tra cứu sách"
 
 
 
@@ -1039,95 +1088,108 @@ def process_message(sentence: str) -> str:
 
     if ollama_alive():
         try:
-            # 1) Phân loại Category (Intent) bằng LLM
-            category = classify_category(sentence)
-            tag_to_log = category  # luôn log intent = category
+            # ========== TẦNG 1 — ƯU TIÊN SÁCH (EMBEDDING) ==========
+            book_hits = search_books_by_embedding(sentence, top_k=1, min_sim=0.55)
+            if book_hits:
+                # book_hits[0] = (row, sim) nhưng ở đây mình chỉ cần trả lời bằng hàm books
+                reply = answer_from_books(sentence)
+                tag_to_log = "Tra cứu sách"
 
-            # 2) Rẽ nhánh theo category lớn
-            
-            if category == "Thông tin ngành":
-                major_reply = answer_from_majors(sentence)
-                if major_reply:
-                    reply = major_reply
-                    tag_to_log = category
+            # ========== TẦNG 2 — ƯU TIÊN NGÀNH (EMBEDDING) ==========
+            if reply is None or not reply.strip():
+                major_hits = search_majors_by_embedding(sentence, top_k=1)
+                if major_hits and major_hits[0][1] >= 0.55:
+                    idx, score, meta = major_hits[0]
+                    reply = answer_from_majors(sentence)
+                    tag_to_log = "Thông tin ngành"
 
-            elif category == "Tra cứu sách":
-                book_reply = answer_from_books(sentence)
-                if book_reply:
-                    reply = book_reply
-                    tag_to_log = category
-            else:
-                # 3) Mặc định: dùng FAQ (Notion → faq.db)
-                conn_faq = sqlite3.connect(FAQ_DB_PATH)   # faq.db
-                cur_faq = conn_faq.cursor()
-                cur_faq.execute("""
-                    SELECT question, answer
-                    FROM faq
-                    WHERE category = ?
-                      AND (approved = 1 OR approved IS NULL)
-                """, (category,))
-                rows = cur_faq.fetchall()
-                conn_faq.close()
+            # ========== TẦNG 3 — Router LLM (FAQ / fallback) ==========
+            if reply is None or not reply.strip():
+                category = classify_category(sentence)
+                tag_to_log = category
 
-                if rows:
-                    # Ghép block Q/A cho LLM đọc và trả lời
-                    faq_block_lines = []
-                    for idx, (q, a) in enumerate(rows, start=1):
-                        q = (q or "").strip()
-                        a = (a or "").strip()
-                        faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
-                    faq_block = "\n\n".join(faq_block_lines)
+                # 3.1 Nếu LLM đoán là hỏi ngành → dùng lại majors
+                if category == "Thông tin ngành":
+                    reply = answer_from_majors(sentence)
 
-                    answer_prompt = (
-                        "Bạn là chatbot của Thư viện.\n"
-                        f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
-                        f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
-                        f"{faq_block}\n\n"
-                        "NHIỆM VỤ:\n"
-                        "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
-                        "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
-                        "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
-                        "4. Nếu không có Answer nào phù hợp, hãy nói: "
-                        "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
-                        "Bây giờ hãy trả lời người dùng:"
-                    )
+                # 3.2 Nếu đoán là hỏi sách → dùng lại books (lúc này có thể nới lỏng điều kiện)
+                elif category == "Tra cứu sách":
+                    reply = answer_from_books(sentence)
 
-                    payload = {
-                        "model": OLLAMA_MODEL,
-                        "prompt": answer_prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.2,
-                            "num_predict": 200
+                # 3.3 Category khác → dùng FAQ trong bảng faq
+                else:
+                    conn_faq = sqlite3.connect(FAQ_DB_PATH)   # faq.db
+                    cur_faq = conn_faq.cursor()
+                    cur_faq.execute("""
+                        SELECT question, answer
+                        FROM faq
+                        WHERE category = ?
+                          AND (approved = 1 OR approved IS NULL)
+                    """, (category,))
+                    rows = cur_faq.fetchall()
+                    conn_faq.close()
+
+                    if rows:
+                        # Ghép block Q/A cho LLM đọc và trả lời
+                        faq_block_lines = []
+                        for idx, (q, a) in enumerate(rows, start=1):
+                            q = (q or "").strip()
+                            a = (a or "").strip()
+                            faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
+                        faq_block = "\n\n".join(faq_block_lines)
+
+                        answer_prompt = (
+                            "Bạn là chatbot của Thư viện.\n"
+                            f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
+                            f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
+                            f"{faq_block}\n\n"
+                            "NHIỆM VỤ:\n"
+                            "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
+                            "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
+                            "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
+                            "4. Nếu không có Answer nào phù hợp, hãy nói: "
+                            "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
+                            "Bây giờ hãy trả lời người dùng:"
+                        )
+
+                        payload = {
+                            "model": OLLAMA_MODEL,
+                            "prompt": answer_prompt,
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.2,
+                                "num_predict": 200
+                            }
                         }
-                    }
 
-                    r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
-                                      json=payload, timeout=OLLAMA_TIMEOUT)
-                    if r.status_code == 200:
-                        reply_llm = (r.json().get("response") or "").strip()
-                        if reply_llm:
-                            reply = reply_llm
-                            confidence = 0.9  # tạm gán cao, sau chỉnh sau
+                        r = requests.post(
+                            f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                            json=payload,
+                            timeout=OLLAMA_TIMEOUT
+                        )
+                        if r.status_code == 200:
+                            reply_llm = (r.json().get("response") or "").strip()
+                            if reply_llm:
+                                reply = reply_llm
+                                confidence = 0.9  # tạm gán
+
         except Exception as e:
             print("[process_message] FAQ/LLM error:", e)
 
-    # 2) Fallback: nếu vẫn chưa có câu trả lời, trả mặc định
+    # ====== Fallback nếu chưa có câu trả lời ======
     if reply is None or not reply.strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
         confidence = 0.0
 
-    # 3) Append thêm câu cho mượt, dùng hàm cũ (nếu bật)
+    # ====== Append cho mượt (nếu bật) ======
     if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
         extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
         if extra:
             reply = f"{reply.strip()} {extra.strip()}"
-        
 
-
-    # 4) Ghi SQLite (bảng conversations) như trước
+    # ====== Ghi log vào conversations ======
     conn = ensure_main_db()
-    cur  = conn.cursor()
+    cur = conn.cursor()
     cur.execute(
         "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) "
         "VALUES (?,?,?,?,?)",
@@ -1136,13 +1198,13 @@ def process_message(sentence: str) -> str:
     conn.commit()
     conn.close()
 
-    # 5) Ghi thêm vào faq.db (inbox) như cũ
+    # ====== Ghi thêm vào faq.db (inbox) ======
     try:
         log_question_for_notion(f"User: {sentence}\nBot: {reply}")
     except Exception as e:
         print(f"[Notion inbox] Lỗi ghi faq.db: {e}")
 
-    # 6) Đẩy Notion (không chặn luồng chat) – giữ logic cũ
+    # ====== Đẩy lên Notion (background) ======
     should_push = (
         LOG_ALL_QUESTIONS
         or reply.strip().startswith("Xin lỗi, mình chưa hiểu")
@@ -1156,6 +1218,7 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
+
 
 # ============== CLI ==============
 def _test_push_notion_once():
@@ -1192,6 +1255,9 @@ if __name__ == "__main__":
     print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
     conn = ensure_main_db()
     cur  = conn.cursor()
+    build_book_embedding_index()
+    build_major_embedding_index()
+
     #_test_push_notion_once()
     try:
         while True:

@@ -137,4 +137,9 @@
 [sync] DONE
 [END   Mon 11/17/2025  0:10:46.09] 
 [START Mon 11/17/2025  1:10:42.40] 
-^C
+^C[START Mon 11/17/2025 21:43:31.67] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 91 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/17/2025 21:43:35.67] 
