@@ -728,13 +728,13 @@ def _llm_format_books_answer(question: str, books: list[tuple], mode: str, extra
     books_block = "\n".join(lines)
 
     if mode == "book":
-        mode_desc = "một hoặc vài CUỐN SÁCH cụ thể mà người dùng đang hỏi."
+        mode_desc = "MỘT cuốn sách cụ thể mà người dùng đang hỏi."
     elif mode == "author":
         mode_desc = f"các sách của TÁC GIẢ {extra_label}."
     elif mode == "major":
         mode_desc = f"các sách thuộc NGÀNH {extra_label}."
-    else:  # 'list' hoặc bất kỳ
-        mode_desc = "một DANH SÁCH các sách liên quan đến câu hỏi của người dùng."
+    else:  # 'list'
+        mode_desc = "DANH SÁCH các sách liên quan đến câu hỏi của người dùng."
 
     system_prompt = f"""
 Bạn là trợ lý thư viện. Bạn sẽ được cung cấp:
@@ -742,34 +742,32 @@ Bạn là trợ lý thư viện. Bạn sẽ được cung cấp:
 - DANH SÁCH SÁCH lấy trực tiếp từ cơ sở dữ liệu thư viện.
 
 NHIỆM VỤ:
-1. Dựa vào danh sách này, hãy trả lời câu hỏi của người dùng về {mode_desc}
+1. Dựa vào DANH SÁCH SÁCH bên dưới để trả lời câu hỏi của người dùng về {mode_desc}.
 2. CHỈ ĐƯỢC SỬ DỤNG những sách xuất hiện trong danh sách bên dưới.
-   **KHÔNG ĐƯỢC BỊA THÊM TÊN SÁCH, TÁC GIẢ, NĂM, TRẠNG THÁI, SỐ LƯỢNG, NGÀNH MỚI.**
-3. Nếu danh sách chỉ có 1 sách → mô tả chi tiết sách đó.
-4. Nếu hỏi ngành → CHỈ ĐƯỢC liệt kê các sách thuộc ngành trong danh sách bên dưới (không tự tạo thêm).
+   **KHÔNG ĐƯỢC BỊA THÊM tên sách, tác giả, năm, trạng thái, số lượng, ngành mới.**
+3. Nếu danh sách chỉ có 1 sách → mô tả chi tiết chính cuốn đó.
+4. Nếu câu hỏi là về NGÀNH → CHỈ ĐƯỢC liệt kê các sách thuộc ngành đó trong danh sách (không tự tạo thêm).
 5. Trả lời bằng tiếng Việt, tự nhiên, ngắn gọn, dễ hiểu.
+
 TUYỆT ĐỐI KHÔNG ĐƯỢC:
 - Bịa thêm bất kỳ cuốn sách nào không có trong danh sách.
 - Tự tạo tên sách, tác giả, năm xuất bản.
-- Tự tạo thêm văn bản mô tả sách không có trong dữ liệu.
-- Gộp nhóm, thêm sách mẫu, ví dụ minh họa ngoài danh sách.
-- Đưa ra gợi ý không có dữ liệu.
+- Tự tạo thêm nội dung mô tả sách nếu danh sách không cung cấp.
+- Gộp nhóm, thêm sách ví dụ minh hoạ ngoài danh sách.
+- Đưa ra gợi ý không có trong dữ liệu.
 
 NẾU DANH SÁCH CHỈ CÓ 1 CUỐN → chỉ trả đúng cuốn đó.
 NẾU DANH SÁCH CÓ NHIỀU CUỐN → CHỈ LIỆT KÊ NHỮNG CUỐN ĐÃ CHO.
-KHÔNG BAO GIỜ LIỆT KÊ THÊM 3–7 CUỐN KHÁC.
-
-
+KHÔNG BAO GIỜ LIỆT KÊ THÊM 3–7 CUỐN KHÁC TỰ NGHĨ RA.
 """
 
     user_prompt = f"""
 Câu hỏi người dùng: "{question}"
 
-Danh sách sách từ cơ sở dữ liệu:
+DANH SÁCH SÁCH TỪ CƠ SỞ DỮ LIỆU:
 {books_block}
 
 Hãy trả lời, NHỚ: chỉ dùng thông tin trong danh sách trên.
-Yêu cầu trả lời NGẮN GỌN (2–3 dòng), chỉ dựa vào các sách trên.
 """
 
     payload = {
@@ -777,7 +775,7 @@ Yêu cầu trả lời NGẮN GỌN (2–3 dòng), chỉ dựa vào các sách t
         "prompt": system_prompt + "\n\n" + user_prompt,
         "stream": False,
         "options": {
-            "temperature": 0.2,
+            "temperature": 0.1,   # giảm max bịa
             "num_predict": 400
         }
     }
@@ -793,6 +791,7 @@ Yêu cầu trả lời NGẮN GỌN (2–3 dòng), chỉ dựa vào các sách t
     except Exception as e:
         print("[books-llm-format] Error:", e)
         return ""
+
 MAJOR_EMB = []       # danh sách vector
 MAJOR_META = []      # (name, major_id, description)
 def vector(txt: str):
@@ -1019,56 +1018,68 @@ def answer_from_books(user_message: str) -> str:
 
 def classify_category(user_message: str) -> str:
     """
-    Phân loại intent 100% theo NGỮ NGHĨA bằng LLM.
-    Không dùng keyword, không dùng fuzzy.
-    Hiểu cả khi user chỉ gõ tên ngành hoặc tên sách.
-    Trả về một trong:
-    - "Thông tin ngành"
-    - "Tra cứu sách"
-    - hoặc tên category khác nằm trong bảng FAQ (nếu LLM suy ra)
+    Phân loại intent bằng LLM:
+    - Tra cứu sách
+    - Thông tin ngành
+    - Hoặc category trong FAQ (Nhiệm vụ, Chức năng, Quy định,…)
     """
     msg = (user_message or "").strip()
     if not msg:
         return "Tra cứu sách"
 
-    url = f"{OLLAMA_URL.rstrip('/')}/api/generate"
+    # ===== Lấy CATEGORY trong FAQ =====
+    try:
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT category FROM faq WHERE category IS NOT NULL")
+        rows = cur.fetchall()
+        faq_categories = [r[0].strip() for r in rows if r[0]]
+        conn.close()
+    except:
+        faq_categories = []
 
-    # Lấy danh sách ngành từ DB → cho LLM biết
+    # ===== Lấy danh sách ngành =====
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT name FROM majors")
         major_names = [r[0] for r in cur.fetchall()]
         conn.close()
-    except Exception:
+    except:
         major_names = []
 
-    bullet = "\n".join(f"- {m}" for m in major_names)
+    list_faq = "\n".join(f"- {c}" for c in faq_categories)
+    list_majors = "\n".join(f"- {m}" for m in major_names)
+
+    allowed_outputs = (
+        ["Tra cứu sách", "Thông tin ngành"]
+        + faq_categories
+    )
 
     system_prompt = f"""
-Bạn là trợ lý thư viện. Nhiệm vụ: phân tích câu của người dùng và chọn category phù hợp nhất.
+Bạn là trợ lý thư viện. Hãy phân loại câu hỏi của người dùng vào ĐÚNG MỘT category.
 
-Có 2 category chính:
-1) "Thông tin ngành"  → khi người dùng:
-   - Gõ tên ngành (vd: Công nghệ thông tin, CNTT, Y học…)
-   - Viết sai chính tả nhưng gần giống tên ngành
-   - Hỏi mô tả ngành, ngành học gì, ra làm gì,…
+Bạn CHỈ ĐƯỢC chọn 1 trong các category sau:
 
-2) "Tra cứu sách" → khi người dùng:
-   - Hỏi về sách, tên sách, liệt kê sách
-   - Hỏi sách còn không, sách ngành nào
-   - Hỏi sách theo tác giả, năm xuất bản,…
+=== CATEGORY SÁCH ===
+- Tra cứu sách
 
-=== Danh sách ngành hợp lệ (tham khảo) ===
-{bullet}
+=== CATEGORY NGÀNH ===
+- Thông tin ngành
+
+=== CATEGORY FAQ ===
+{list_faq}
+
+=== DANH SÁCH NGÀNH ===
+{list_majors}
 
 QUY TẮC:
-- Nếu user chỉ gõ 1 từ/cụm từ và giống với tên ngành → ưu tiên "Thông tin ngành".
-- Nếu user hỏi về sách, tài liệu, giáo trình → "Tra cứu sách".
+- Nếu câu hỏi liên quan sách, giáo trình, tài liệu → Tra cứu sách
+- Nếu câu hỏi liên quan ngành học, mô tả ngành, gõ tên ngành → Thông tin ngành
+- Nếu câu hỏi giống/thuộc một trong các category FAQ ở trên → trả đúng category FAQ đó
 
-Hãy trả về DUY NHẤT một trong các chuỗi sau:
-- Thông tin ngành
-- Tra cứu sách
+CHỈ TRẢ VỀ MỘT CHUỖI DUY NHẤT.
+CHỈ TRẢ LỜI BẰNG TÊN CATEGORY, KHÔNG GIẢI THÍCH.
 """
 
     payload = {
@@ -1079,15 +1090,21 @@ Hãy trả về DUY NHẤT một trong các chuỗi sau:
     }
 
     try:
-        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                          json=payload, timeout=OLLAMA_TIMEOUT)
         raw = (r.json().get("response") or "").strip().splitlines()[0]
-        if raw in ["Thông tin ngành", "Tra cứu sách"]:
+
+        # Nếu là category hợp lệ → trả về luôn
+        if raw in allowed_outputs:
             return raw
-        # Nếu LLM trả linh tinh → mặc định coi là hỏi sách
+
+        # fallback
         return "Tra cứu sách"
+
     except Exception as e:
         print("[classify_category] LLM error:", e)
         return "Tra cứu sách"
+
 def detect_book_followup_intent(user_message: str) -> str:
     """
     Dùng LLM để hiểu câu hỏi tiếp theo đang hỏi gì về cuốn sách trong LAST_BOOK_CONTEXT.
