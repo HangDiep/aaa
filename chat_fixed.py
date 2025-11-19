@@ -73,6 +73,7 @@ LOG_ALL_QUESTIONS = True
 
 INTERRUPT_INTENTS = set()
 CANCEL_WORDS = {"hủy", "huỷ", "huy", "cancel", "thoát", "dừng", "đổi chủ đề", "doi chu de"}
+LAST_BOOK_CONTEXT = None
 
 import unicodedata
 
@@ -745,8 +746,20 @@ NHIỆM VỤ:
 2. CHỈ ĐƯỢC SỬ DỤNG những sách xuất hiện trong danh sách bên dưới.
    **KHÔNG ĐƯỢC BỊA THÊM TÊN SÁCH, TÁC GIẢ, NĂM, TRẠNG THÁI, SỐ LƯỢNG, NGÀNH MỚI.**
 3. Nếu danh sách chỉ có 1 sách → mô tả chi tiết sách đó.
-4. Nếu có nhiều sách → có thể liệt kê 3–7 sách tiêu biểu, gộp nhóm hợp lý.
+4. Nếu hỏi ngành → CHỈ ĐƯỢC liệt kê các sách thuộc ngành trong danh sách bên dưới (không tự tạo thêm).
 5. Trả lời bằng tiếng Việt, tự nhiên, ngắn gọn, dễ hiểu.
+TUYỆT ĐỐI KHÔNG ĐƯỢC:
+- Bịa thêm bất kỳ cuốn sách nào không có trong danh sách.
+- Tự tạo tên sách, tác giả, năm xuất bản.
+- Tự tạo thêm văn bản mô tả sách không có trong dữ liệu.
+- Gộp nhóm, thêm sách mẫu, ví dụ minh họa ngoài danh sách.
+- Đưa ra gợi ý không có dữ liệu.
+
+NẾU DANH SÁCH CHỈ CÓ 1 CUỐN → chỉ trả đúng cuốn đó.
+NẾU DANH SÁCH CÓ NHIỀU CUỐN → CHỈ LIỆT KÊ NHỮNG CUỐN ĐÃ CHO.
+KHÔNG BAO GIỜ LIỆT KÊ THÊM 3–7 CUỐN KHÁC.
+
+
 """
 
     user_prompt = f"""
@@ -756,6 +769,7 @@ Danh sách sách từ cơ sở dữ liệu:
 {books_block}
 
 Hãy trả lời, NHỚ: chỉ dùng thông tin trong danh sách trên.
+Yêu cầu trả lời NGẮN GỌN (2–3 dòng), chỉ dựa vào các sách trên.
 """
 
     payload = {
@@ -964,6 +978,8 @@ def answer_from_books(user_message: str) -> str:
         # Ngược lại: coi là hỏi 1 CUỐN SÁCH GẦN NHẤT
         best_row = rows[0]
         best_sim = sims[0]
+        global LAST_BOOK_CONTEXT
+        LAST_BOOK_CONTEXT = best_row
 
         if best_sim < 0.5:
             return (
@@ -1072,11 +1088,72 @@ Hãy trả về DUY NHẤT một trong các chuỗi sau:
     except Exception as e:
         print("[classify_category] LLM error:", e)
         return "Tra cứu sách"
+def detect_book_followup_intent(user_message: str) -> str:
+    """
+    Dùng LLM để hiểu câu hỏi tiếp theo đang hỏi gì về cuốn sách trong LAST_BOOK_CONTEXT.
+    Trả về 1 trong:
+    - 'quantity' : hỏi về số lượng, còn nhiều không, còn bao nhiêu quyển, v.v.
+    - 'status'   : hỏi kiểu còn hàng không, tình trạng ra sao, có sẵn không,...
+    - 'other'    : hỏi cái khác nhưng vẫn liên quan cuốn sách (vd: nội dung, khó/dễ,...)
+    - 'none'     : không liên quan tới cuốn sách trước.
+    """
+    global LAST_BOOK_CONTEXT
+    if not ollama_alive() or LAST_BOOK_CONTEXT is None:
+        return "none"
 
+    n, a, y, q, s, mj = LAST_BOOK_CONTEXT
+    book_info = (
+        f"Tên: {n}. Tác giả: {a}. Năm: {y}. "
+        f"Số lượng: {q}. Trạng thái: {s}. Ngành: {mj or 'Không rõ'}."
+    )
 
+    system_prompt = """
+Bạn là trợ lý thư viện.
+Bạn sẽ nhận được:
+- Thông tin một cuốn sách.
+- Câu hỏi mới của người dùng (sau khi họ vừa hỏi về cuốn sách này).
 
+NHIỆM VỤ:
+Hiểu ngữ nghĩa câu hỏi mới và phân loại nó thành đúng 1 nhãn sau:
 
+- "quantity"  → nếu người dùng hỏi về số LƯỢNG, còn bao nhiêu quyển, còn nhiều không, hết chưa,...
+- "status"    → nếu người dùng hỏi về TÌNH TRẠNG / CÒN HÀNG KHÔNG, có sẵn để mượn không,...
+- "other"     → nếu người dùng hỏi thứ khác nhưng vẫn LIÊN QUAN cuốn sách (nội dung, độ khó, nên học,...).
+- "none"      → nếu câu hỏi KHÔNG liên quan tới cuốn sách trước.
 
+Chỉ được trả về DUY NHẤT một từ trong 4 từ sau:
+quantity
+status
+other
+none
+"""
+
+    user_prompt = f"""
+Thông tin sách:
+{book_info}
+
+Câu hỏi mới của người dùng: "{user_message}"
+
+Hãy trả về đúng 1 từ trong: quantity, status, other, none.
+"""
+
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": system_prompt + "\n\n" + user_prompt,
+        "stream": False,
+        "options": {"temperature": 0.0, "num_predict": 10},
+    }
+
+    try:
+        r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
+                          json=payload, timeout=OLLAMA_TIMEOUT)
+        raw = (r.json().get("response") or "").strip().splitlines()[0].strip().lower()
+        if raw in ("quantity", "status", "other", "none"):
+            return raw
+        return "none"
+    except Exception as e:
+        print("[followup-intent] error:", e)
+        return "none"
 def process_message(sentence: str) -> str:
     sentence = (sentence or "").strip()
     if not sentence:
@@ -1085,13 +1162,67 @@ def process_message(sentence: str) -> str:
     reply: Optional[str] = None
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
+    text_norm = normalize_vi(sentence)
+    handled_followup = False
 
-    if ollama_alive():
+    global LAST_BOOK_CONTEXT
+    # ====== BƯỚC 1: xử lý câu hỏi tiếp theo về CUỐN SÁCH trước đó ======
+    if LAST_BOOK_CONTEXT is not None and ollama_alive():
+        intent = detect_book_followup_intent(sentence)   # quantity | status | other | none
+
+        if intent in ("quantity", "status", "other"):
+            n, a, y, q, s, mj = LAST_BOOK_CONTEXT
+            major_label = mj or "Không rõ"
+
+            try:
+                qty = int(q)
+            except Exception:
+                qty = None
+
+            if intent == "quantity":
+                if qty is None:
+                    reply = (
+                        f"Mình chưa có dữ liệu chính xác về số lượng sách **{n}**.\n"
+                        f"- Trạng thái hiện tại: {s}."
+                    )
+                else:
+                    if qty > 0:
+                        reply = (
+                            f"Sách **{n}** của {a} hiện trong hệ thống còn khoảng {qty} quyển.\n"
+                            f"Trạng thái: {s}."
+                        )
+                    else:
+                        reply = f"Sách **{n}** của {a} hiện đã hết hàng trong hệ thống."
+
+            elif intent == "status":
+                if qty is not None and qty > 0:
+                    reply = (
+                        f"Sách **{n}** của {a} hiện đang còn trong thư viện "
+                        f"(khoảng {qty} quyển). Trạng thái: {s}."
+                    )
+                else:
+                    reply = (
+                        f"Sách **{n}** của {a} hiện không còn sẵn trong kho hoặc số lượng rất ít.\n"
+                        f"Trạng thái ghi nhận: {s}."
+                    )
+
+            elif intent == "other":
+                reply = (
+                    f"Bạn đang hỏi thêm về sách **{n}** của {a} (năm {y}, ngành {major_label}).\n"
+                    f"Hiện hệ thống chỉ lưu thông tin cơ bản: số lượng = {q}, trạng thái = {s}. "
+                    f"Nếu bạn cần nội dung chi tiết, bạn có thể tra cứu sách trực tiếp tại thư viện."
+                )
+
+            if reply:
+                tag_to_log = "Tra cứu sách (followup)"
+                # KHÔNG router nữa, nhảy xuống phần log/append luôn
+                # => bỏ qua phần embedding bên dưới
+    # ====== BƯỚC 2: chỉ router nếu CHƯA có reply từ follow-up ======
+    if reply is None and ollama_alive():
         try:
             # ========== TẦNG 1 — ƯU TIÊN SÁCH (EMBEDDING) ==========
             book_hits = search_books_by_embedding(sentence, top_k=1, min_sim=0.55)
             if book_hits:
-                # book_hits[0] = (row, sim) nhưng ở đây mình chỉ cần trả lời bằng hàm books
                 reply = answer_from_books(sentence)
                 tag_to_log = "Tra cứu sách"
 
@@ -1108,11 +1239,9 @@ def process_message(sentence: str) -> str:
                 category = classify_category(sentence)
                 tag_to_log = category
 
-                # 3.1 Nếu LLM đoán là hỏi ngành → dùng lại majors
                 if category == "Thông tin ngành":
                     reply = answer_from_majors(sentence)
 
-                # 3.2 Nếu đoán là hỏi sách → dùng lại books (lúc này có thể nới lỏng điều kiện)
                 elif category == "Tra cứu sách":
                     reply = answer_from_books(sentence)
 
@@ -1218,6 +1347,7 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
+
 
 
 # ============== CLI ==============
