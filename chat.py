@@ -24,7 +24,7 @@ FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho c�
 # ============================================
 print("Đang tải model embedding (lần đầu sẽ hơi lâu)...")
 try:
-    # User suggested BAAI/bge-large-en-v1.5, but BAAI/bge-m3 is SOTA for multilingual/Vietnamese
+    # BAAI/bge-m3 là SOTA đa ngôn ngữ (trong đó có tiếng Việt)
     embed_model = SentenceTransformer("BAAI/bge-m3")
 except Exception as e:
     print(f"⚠ Lỗi load model embedding: {e}")
@@ -68,10 +68,10 @@ def llm(prompt: str, temp: float = 0.15, n: int = 128) -> str:
 print("Đang tải dữ liệu từ faq.db...")
 
 if not os.path.exists(FAQ_DB_PATH):
-    print(f"❌ Không tìm thấy file {FAQ_DB_PATH}. Hãy chạy sync_faq.py trước!")
+    print(f"❌ Không tìm thấy file {FAQ_DB_PATH}. Hãy chạy sync_all.py / sync_faq.py trước!")
     # Tạo dummy để không crash
     FAQ_TEXTS, BOOK_TEXTS, MAJOR_TEXTS = [], [], []
-    FAQ_EMB = np.zeros((0, 768)) # vietnamese-sbert dim is 768
+    FAQ_EMB = np.zeros((0, 768))
     BOOK_EMB = np.zeros((0, 768))
     MAJOR_EMB = np.zeros((0, 768))
     faq_rows, book_rows, major_rows = [], [], []
@@ -84,23 +84,18 @@ else:
         "SELECT question, answer, category FROM faq WHERE approved = 1 OR approved IS NULL"
     )
     faq_rows = cur.fetchall()
-    
-    # UPDATE: Theo yêu cầu "hiểu câu trả lời", ta sẽ embed CÂU TRẢ LỜI (Answer).
-    # Tuy nhiên, để AI hiểu ngữ cảnh tốt nhất, ta nên ghép cả Category vào (nếu có).
-    # Ví dụ: "Giờ mở cửa: Thư viện mở từ 7h..." sẽ dễ tìm hơn là chỉ "Thư viện mở từ 7h..."
+
     FAQ_TEXTS = []
     for q, a, cat in faq_rows:
-        # Kết hợp Category + Answer để tạo thành một "khối kiến thức" (Knowledge Chunk)
-        # Nếu Answer đã đầy đủ ý nghĩa thì rất tốt.
-        content = f"{cat or ''}: {a or ''}" 
+        content = f"{cat or ''}: {a or ''}"
         FAQ_TEXTS.append(normalize(content))
-    
+
     # BOOKS
     cur.execute(
         """
         SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
         FROM books b LEFT JOIN majors m ON b.major_id = m.major_id
-    """
+        """
     )
     book_rows = cur.fetchall()
     BOOK_TEXTS = [
@@ -166,72 +161,43 @@ def auto_route_by_embedding(q_vec: np.ndarray) -> str:
 
 
 # ============================================
-#  LOAD TRAINED MODEL (ML Classification)
+#  SIMPLE GREETING CHECK
 # ============================================
-import torch
-from model import NeuralNet
-from nltk_utils import bag_of_words, tokenize
+def is_greeting(text: str) -> bool:
+    t = text.lower().strip()
+    # Câu rất ngắn, mang tính chào hỏi
+    greet_words = ["xin chào", "chào bạn", "chào ad", "hello", "hi", "alo"]
+    return any(w in t for w in greet_words)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-FILE = "data.pth"
-try:
-    data = torch.load(FILE, map_location=device)
-    input_size = data["input_size"]
-    hidden_size = data["hidden_size"]
-    output_size = data["output_size"]
-    all_words = data["all_words"]
-    tags = data["tags"]
-    model_state = data["model_state"]
-
-    model = NeuralNet(input_size, hidden_size, output_size).to(device)
-    model.load_state_dict(model_state)
-    model.eval()
-    print("✅ Đã load model phân loại (data.pth)")
-except Exception as e:
-    print(f"⚠ Không load được model phân loại: {e}")
-    model = None
-
+# ============================================
+#  DUMMY INTENT (GIỮ TÊN HÀM, BỎ MODEL CŨ)
+# ============================================
 def predict_intent(sentence):
-    if not model:
-        return None
-    
-    sentence = tokenize(sentence)
-    X = bag_of_words(sentence, all_words)
-    X = X.reshape(1, X.shape[0])
-    X = torch.from_numpy(X).to(device)
-
-    output = model(X)
-    _, predicted = torch.max(output, dim=1)
-    tag = tags[predicted.item()]
-
-    probs = torch.softmax(output, dim=1)
-    prob = probs[0][predicted.item()]
-    
-    if prob.item() > 0.75:
-        return tag
+    """
+    Hàm giữ lại cho tương thích, nhưng KHÔNG dùng model data.pth nữa.
+    Luôn trả về None để router dùng LLM + Embedding.
+    """
     return None
 
+
 # ============================================
-# 1) ROUTER – HYBRID (ML + LLM)
+# 1) ROUTER – 100% LLM + EMBEDDING (KHÔNG DÙNG data.pth)
 # ============================================
 def route_llm(question: str, q_vec: np.ndarray) -> str:
-    # B1: Dùng model đã train để phân loại Category (ML cơ bản)
-    # Model này đã được train trên CÂU TRẢ LỜI từ Notion
+    # B0: Nếu là câu chào ngắn → GREETING luôn
+    if is_greeting(question) and len(question.split()) <= 4:
+        print("[ROUTER] Detected GREETING")
+        return "GREETING"
+
+    # (Giữ predict_intent để không lỗi, nhưng nó luôn trả None)
     intent = predict_intent(question)
-    
     if intent:
+        # Trong tương lai nếu bạn train intent mới thì chỗ này vẫn dùng được
         print(f"[ML Predict] Intent: {intent}")
-        # Nếu là GREETING -> Trả về luôn
-        if intent == "GREETING":
-            return "GREETING"
-        
-        # Nếu ra các Category cụ thể (Giờ mở cửa, Liên hệ...) -> Trả về chính Category đó
-        # Để lát nữa search_faq chỉ tìm trong category này thôi.
         return intent
 
-    # B2: Nếu model không chắc chắn (hoặc là câu hỏi về Sách/Ngành mà model chưa học kỹ)
-    # Dùng LLM để phân loại chung
+    # B1: Dùng LLM phân loại câu hỏi vào 3 nhóm lớn
     prompt = f"""
 Phân loại câu hỏi của sinh viên vào 1 trong 3 nhóm sau:
 
@@ -244,19 +210,21 @@ Câu hỏi: "{question}"
 Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
 """
     out = llm(prompt, temp=0.05, n=10).upper().strip()
+    print(f"[ROUTER LLM] Raw output: {out}")
 
     if out in ["FAQ", "BOOKS", "MAJORS"]:
         return out
 
-    # fallback embedding
-    return auto_route_by_embedding(q_vec)
+    # B2: Fallback embedding nếu LLM trả linh tinh
+    r = auto_route_by_embedding(q_vec)
+    print(f"[ROUTER EMBEDDING] Fallback route: {r}")
+    return r
+
+
 # ============================================
-# 2) REWRITE – KHÔNG ĐỤNG CÂU NGẮN
+# 2) REWRITE – KHÔNG ĐỤNG CÂU QUÁ NGẮN
 # ============================================
 def rewrite_question(q: str) -> str:
-    # Câu ngắn (≤ 5 từ) → giữ nguyên, tránh LLM phá nghĩa.
-    # UPDATE: Với yêu cầu "hiểu như người", ta cho LLM sửa cả câu ngắn nếu nó quá tối nghĩa.
-    # Chỉ bỏ qua nếu quá ngắn (< 2 từ)
     if len(q.split()) < 2:
         return q
 
@@ -281,9 +249,9 @@ Câu viết lại (chỉ viết 1 câu duy nhất):
 
 
 # ============================================
-# 3A) SEMANTIC SEARCH CHO FAQ – CÓ LỌC CATEGORY
+# 3A) SEMANTIC SEARCH CHO FAQ – CÓ LỌC CATEGORY (CHƯA DÙNG)
 # ============================================
-def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None): 
+def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None):
     if len(FAQ_EMB) == 0:
         return []
 
@@ -293,15 +261,12 @@ def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: s
     candidates = []
     for i in idx:
         score = float(sims[i])
-        # Hạ ngưỡng xuống cực thấp để "lưới" được hết các câu có ý nghĩa liên quan
-        if score < 0.08: 
+        if score < 0.08:
             continue
-        
+
         q, a, cat = faq_rows[i]
-        
-        # LỌC: Nếu đã biết Category (do model train dự đoán), chỉ lấy đúng Category đó
+
         if filter_category and filter_category not in ["FAQ", "BOOKS", "MAJORS", "GREETING"]:
-            # So sánh tương đối (vì có thể có sự khác biệt nhỏ về string)
             if cat != filter_category:
                 continue
 
@@ -328,18 +293,17 @@ def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
             return []
         sims = np.dot(BOOK_EMB, q_vec)
         rows = book_rows
-        th = 0.15 # Hạ ngưỡng thấp để Rerank lọc
+        th = 0.15
         idx = np.argsort(-sims)[:top_k]
         for i in idx:
             score = float(sims[i])
             if score < th:
                 continue
             n, a, y, qty, s, m = rows[i]
-            # Format nội dung để LLM đọc hiểu
             content = f"Sách: {n}. Tác giả: {a}. Năm: {y}. Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
             candidates.append({
                 "score": score,
-                "question": "", 
+                "question": "",
                 "answer": content,
                 "category": "BOOKS",
                 "id": i
@@ -351,7 +315,7 @@ def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
         return []
     sims = np.dot(MAJOR_EMB, q_vec)
     rows = major_rows
-    th = 0.20 
+    th = 0.20
     idx = np.argsort(-sims)[:top_k]
     for i in idx:
         score = float(sims[i])
@@ -370,18 +334,16 @@ def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
 
 
 # ============================================
-# 3C) LLM RERANK CHO FAQ – CHỖ “HIỂU NGHĨA”
+# 3C) LLM RERANK CHO FAQ/BOOKS/MAJORS
 # ============================================
 def rerank_with_llm(user_q: str, candidates: list):
     if not candidates:
         return None
 
-    # 1. Tạo block text cho LLM đọc
     block = ""
     for i, c in enumerate(candidates, start=1):
         block += f"{i}. [{c['category']}] {c['answer']}\n"
 
-    # 2. Prompt "Tư duy" (Reasoning) thay vì "Luật" (Rules)
     prompt = f"""
 Bạn là chuyên gia tư vấn thông minh.
 Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
@@ -403,22 +365,15 @@ YÊU CẦU:
 
 Chỉ trả về 1 con số duy nhất.
 """
-    # Tăng n lên 128 để tránh bị cắt giữa chừng
     out = llm(prompt, temp=0.1, n=128).strip()
-    
-    # 3. Parse kết quả
+
     import re
     match = re.search(r'\d+', out)
     if match:
         idx = int(match.group()) - 1
-        # Nếu LLM chọn 0 hoặc số không hợp lệ -> Coi như không chọn được
         if 0 <= idx < len(candidates):
             return candidates[idx]
-            
-    # 4. FALLBACK THÔNG MINH (Quan trọng!)
-    # Nếu LLM không chọn được (trả về 0 hoặc lỗi), nhưng Search Engine (Embedding) 
-    # đã tìm ra ứng viên số 1 có điểm số rất cao (> 0.45), thì tin tưởng Search Engine.
-    # (Vì Embedding model BAAI/bge-m3 rất mạnh, thường top 1 là đúng)
+
     if candidates and candidates[0]['score'] > 0.45:
         print(f"[Rerank] LLM từ chối, nhưng Top 1 score cao ({candidates[0]['score']:.2f}) -> Chọn Top 1.")
         return candidates[0]
@@ -442,7 +397,7 @@ QUY TẮC BẮT BUỘC:
 2. Nếu thông tin có vẻ liên quan (dù chỉ một phần), HÃY TRẢ LỜI NGAY.
 3. Ví dụ: Hỏi "sách công nghệ" mà có "Công nghệ phần mềm" -> TRẢ LỜI thông tin sách đó.
 4. Nếu thông tin là danh sách, hãy trích xuất ý chính.
-5. ⚠️ ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN (Ví dụ: "Nguyễn Thị A" không được viết là "Nguyễn Thị").
+5. ⚠️ ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN.
 6. Nếu câu hỏi dùng từ đồng nghĩa, hãy tự suy luận.
 7. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
 8. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan.
@@ -451,22 +406,19 @@ Nếu thông tin HOÀN TOÀN KHÔNG LIÊN QUAN thì mới nói: "{FALLBACK_MSG}"
 
 Câu trả lời của bạn (Tiếng Việt):
 """
-    # Tăng temp lên để bot "dám" trả lời hơn -> UPDATE: Giảm xuống để chính xác tên riêng
-    out = llm(prompt, temp=0.05, n=256) 
+    out = llm(prompt, temp=0.05, n=256)
     print(f"[DEBUG STRICT OUT] {out}")
-    
+
     if not out:
         return FALLBACK_MSG
 
     out = out.strip()
-    
-    # UPDATE: Chấp nhận SĐT (số) hoặc Email (@) hoặc Link (http)
+
     if any(c.isdigit() for c in out) or "@" in out or "http" in out:
         return out
 
-    # Bỏ check "không có thông tin" quá gắt, chỉ check nếu output quá ngắn
-    if "không có thông tin" in out.lower() and len(out) < 15: 
-         return FALLBACK_MSG
+    if "không có thông tin" in out.lower() and len(out) < 15:
+        return FALLBACK_MSG
 
     return out
 
@@ -482,73 +434,67 @@ def process_message(text: str) -> str:
     # B0: vector cho router
     q_vec_route = embed_model.encode(normalize(text), normalize_embeddings=True)
 
-    # B1: Router
+    # B1: Router (LLM + Embedding)
     route = route_llm(text, q_vec_route)
-    # print("[DEBUG ROUTE]", route)
 
     # B2: Rewrite
     rewritten = rewrite_question(text)
     q_vec = embed_model.encode(normalize(rewritten), normalize_embeddings=True)
 
     # B3 + B4
-    # UPDATE: Nếu câu hỏi dài (> 3 từ) hoặc chứa từ khóa hỏi (ở đâu, sách, phòng, bao nhiêu...), 
-    # thì DÙ Router bảo là GREETING cũng KỆ NÓ, cứ đi tìm kiếm cho chắc.
-    # Tránh trường hợp model train bị lệch, cứ thấy lạ là phán Greeting.
-    is_real_question = len(text.split()) > 3 or any(w in text.lower() for w in ["ở đâu", "sách", "phòng", "bao nhiêu", "khi nào", "mấy giờ", "là gì"])
-    
-    if route == "GREETING" and not is_real_question:
-        return "Xin chào! Tôi là trợ lý ảo thư viện (đã được train). Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
+    is_real_question = len(text.split()) > 3 or any(
+        w in text.lower()
+        for w in ["ở đâu", "sách", "phòng", "bao nhiêu", "khi nào", "mấy giờ", "là gì"]
+    )
 
-    # HEURISTIC: Sửa lỗi Router đoán sai (ví dụ: "sách python" -> GREETING)
+    if route == "GREETING" and not is_real_question:
+        return "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
+
     lower_text = text.lower()
-    
-    # 1. Nếu có từ khóa SÁCH/GIÁO TRÌNH mà không có từ khóa QUY TRÌNH -> Force BOOKS
+
+    # Heuristic 1: từ khóa sách → BOOKS
     if any(w in lower_text for w in ["sách", "giáo trình", "tài liệu", "tác giả", "ấn phẩm"]):
-        # Trừ các trường hợp hỏi quy định (mượn, trả, phòng, giờ...)
         if not any(w in lower_text for w in ["mượn", "trả", "quy định", "nội quy", "giờ", "phòng", "thủ tục", "hướng dẫn"]):
             print("[DEBUG] Heuristic: Force route -> BOOKS")
             route = "BOOKS"
 
-    # 2. Nếu có từ khóa NGÀNH/KHOA -> Force MAJORS
+    # Heuristic 2: ngành/khoa → MAJORS
     if any(w in lower_text for w in ["ngành", "khoa", "đào tạo", "mã ngành"]):
         print("[DEBUG] Heuristic: Force route -> MAJORS")
         route = "MAJORS"
 
-    # Nếu route là BOOKS hoặc MAJORS -> Xử lý riêng
+    # BOOKS
     if route == "BOOKS":
         candidates = search_nonfaq("BOOKS", q_vec, top_k=15)
         if not candidates:
-             return "Không tìm thấy sách nào phù hợp."
-        
+            return "Không tìm thấy sách nào phù hợp."
+
         print(f"[DEBUG BOOKS] Found {len(candidates)} candidates.")
         best_cand = rerank_with_llm(rewritten, candidates)
         if not best_cand:
-             # Fallback top 1
-             best_cand = candidates[0]
-        
+            best_cand = candidates[0]
+
         return strict_answer(rewritten, best_cand['answer'])
 
+    # MAJORS
     if route == "MAJORS":
         candidates = search_nonfaq("MAJORS", q_vec, top_k=15)
         if not candidates:
-             return "Không tìm thấy ngành học nào phù hợp."
-        
+            return "Không tìm thấy ngành học nào phù hợp."
+
         print(f"[DEBUG MAJORS] Found {len(candidates)} candidates.")
         best_cand = rerank_with_llm(rewritten, candidates)
         if not best_cand:
-             best_cand = candidates[0]
-             
+            best_cand = candidates[0]
+
         return strict_answer(rewritten, best_cand['answer'])
-    
-    # Trường hợp còn lại: FAQ hoặc CÁC CATEGORY CỤ THỂ
-    # Nếu route không phải là "FAQ" chung chung, thì nó chính là filter_category
-    filter_cat = route if route != "FAQ" else None
-    
+
+    # Mặc định: FAQ
+    filter_cat = None  # hiện tại chưa lọc theo category nhỏ
     print(f"\n[DEBUG] Filter Category: {filter_cat}")
 
-    # BƯỚC 1: Tìm TOÀN BỘ FAQ (Bỏ lọc Category để tăng Recall)
     candidates = search_faq_candidates(q_vec, top_k=20, filter_category=None)
-        
+
     if not candidates:
         print("[DEBUG] ❌ Không tìm thấy candidate nào (do điểm thấp hơn ngưỡng).")
         return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
@@ -557,16 +503,13 @@ def process_message(text: str) -> str:
     for c in candidates:
         print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
 
-    # Rerank
     best_cand = rerank_with_llm(rewritten, candidates)
     if not best_cand:
-            print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates.")
-            # Fallback: lấy top 1
-            best_cand = candidates[0]
+        print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates. Lấy Top 1.")
+        best_cand = candidates[0]
     else:
-            print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
+        print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
 
-    # Strict Answer
     final_ans = strict_answer(rewritten, best_cand['answer'])
     return final_ans
 
