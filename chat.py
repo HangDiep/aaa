@@ -365,61 +365,56 @@ def rerank_with_llm(user_q: str, candidates: list):
     if not candidates:
         return None
 
+    # 1. Tạo block text cho LLM đọc
     block = ""
     for i, c in enumerate(candidates, start=1):
-        block += f"{i}. {c['answer']}\n"
+        block += f"{i}. [{c['category']}] {c['answer']}\n"
 
+    # 2. Prompt "Tư duy" (Reasoning) thay vì "Luật" (Rules)
     prompt = f"""
 Bạn là chuyên gia tư vấn thông minh.
-Nhiệm vụ: Tìm câu trả lời TỐT NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
+Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
 
 Câu hỏi: "{user_q}"
 
 Danh sách ứng viên:
 {block}
 
-HƯỚNG DẪN TƯ DUY (QUAN TRỌNG):
-1. **XỬ LÝ CÂU HỎI LIỆT KÊ (LIST ALL) - QUAN TRỌNG**:
-   - Nếu hỏi "Gồm những gì?", "Có những phòng nào?", "Liệt kê...", "Chia thành...".
-   - -> BẮT BUỘC chọn câu trả lời có chứa DANH SÁCH (dấu gạch đầu dòng "-") hoặc từ "gồm", "bao gồm".
-   - Ví dụ: Hỏi "Thư viện gồm những phòng nào?" -> Chọn câu "các phòng thư viện: - Phòng A... - Phòng B...".
+HƯỚNG DẪN TƯ DUY:
+- Hãy hiểu Ý NGHĨA của câu hỏi (không chỉ bắt từ khóa).
+- Ví dụ: Hỏi "Fanpage" thì câu chứa "Facebook" là đúng. Hỏi "Quy trình" thì câu hướng dẫn các bước là đúng.
+- Nếu câu hỏi tìm "Địa điểm" (ở đâu), hãy chọn câu chứa thông tin vị trí.
+- Nếu câu hỏi tìm "Danh sách" (gồm những gì), hãy chọn câu liệt kê đầy đủ nhất.
 
-2. **XỬ LÝ TÌM KIẾM CỤ THỂ (SPECIFIC LOOKUP)**:
-   - Nếu hỏi trúng tên một phòng cụ thể (ví dụ: "Phòng mượn sách").
-   - -> Hãy tìm trong danh sách xem có mục đó không. Nếu có -> CHỌN NGAY.
-
-3. **SO KHỚP TỪ KHÓA & NGỮ NGHĨA**:
-   - Hỏi "Ở đâu", "Chỗ nào" -> Tìm câu chứa địa điểm (Nhà, Phòng, Tầng, Lầu, Khu, Vị trí...).
-   - Hỏi "Bao nhiêu", "Số lượng" -> Tìm câu chứa con số hoặc từ chỉ lượng (cuốn, bản, đầu sách...).
-   - Hỏi "Thời gian", "Bao lâu" -> Tìm câu chứa ngày, giờ, tháng, năm.
-
-4. **KIỂM TRA ĐỊNH DẠNG**:
-   - Hỏi "Số điện thoại" -> Câu trả lời PHẢI có dãy số.
-   - Hỏi "Link/Facebook" -> Câu trả lời PHẢI có "http".
-
-KẾT QUẢ:
+YÊU CẦU:
 - Nếu tìm thấy câu trả lời phù hợp: Trả về SỐ THỨ TỰ (ví dụ: 1, 2...).
 - Nếu không có câu nào khớp: Trả về 0.
 
 Chỉ trả về 1 con số duy nhất.
-- Nếu không tìm thấy câu trả lời phù hợp, trả về "0".
 """
-    out = llm(prompt, temp=0.1, n=10).strip()
+    # Tăng n lên 128 để tránh bị cắt giữa chừng
+    out = llm(prompt, temp=0.1, n=128).strip()
     
-    # Lấy số đầu tiên tìm thấy
+    # 3. Parse kết quả
     import re
     match = re.search(r'\d+', out)
     if match:
         idx = int(match.group()) - 1
+        # Nếu LLM chọn 0 hoặc số không hợp lệ -> Coi như không chọn được
         if 0 <= idx < len(candidates):
             return candidates[idx]
             
+    # 4. FALLBACK THÔNG MINH (Quan trọng!)
+    # Nếu LLM không chọn được (trả về 0 hoặc lỗi), nhưng Search Engine (Embedding) 
+    # đã tìm ra ứng viên số 1 có điểm số rất cao (> 0.45), thì tin tưởng Search Engine.
+    # (Vì Embedding model BAAI/bge-m3 rất mạnh, thường top 1 là đúng)
+    if candidates and candidates[0]['score'] > 0.45:
+        print(f"[Rerank] LLM từ chối, nhưng Top 1 score cao ({candidates[0]['score']:.2f}) -> Chọn Top 1.")
+        return candidates[0]
+
     return None
 
 
-# ============================================
-# 4) STRICT ANSWER – KHÔNG BAO GIỜ BỊA
-# ============================================
 def strict_answer(question: str, knowledge: str) -> str:
     prompt = f"""
 Bạn là trợ lý ảo của thư viện. 
