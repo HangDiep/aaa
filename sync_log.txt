@@ -157,3 +157,31 @@
 [sync] BOOKS: syncing...
 [sync] DONE
 [END   Wed 11/19/2025 21:42:41.12] 
+[START Wed 11/19/2025 22:32:12.36] 
+^C[START Thu 11/20/2025 20:32:11.31] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 35 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/20/2025 20:32:15.67] 
+[START Thu 11/20/2025 21:32:11.78] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 35 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/20/2025 21:32:15.67] 
+[START Thu 11/20/2025 22:32:11.88] 
+^C[START Fri 11/21/2025 20:32:11.20] 
+^C[START Fri 11/21/2025 21:32:11.63] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 38 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Fri 11/21/2025 21:32:16.20] 
+[START Sun 11/23/2025  8:26:20.34] 
+^C[START Sun 11/23/2025  8:27:47.30] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 16 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Sun 11/23/2025  8:27:51.61] 

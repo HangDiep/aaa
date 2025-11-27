@@ -107,7 +107,8 @@ def ensure_main_db() -> sqlite3.Connection:
     )
     conn.commit()
     return conn
-
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 def ensure_questions_log_db() -> None:
     dir_name = os.path.dirname(FAQ_DB_PATH)
     if dir_name and not os.path.exists(dir_name):
@@ -163,8 +164,7 @@ try:
 except Exception:
     state_mgr = StateManager()
 
-def _now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 
 # ============== FAQ / Inventory ==============
@@ -823,7 +823,13 @@ EMB_MODEL_NAME_BOOKS = os.getenv(
     "BOOK_EMB_MODEL",
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # hoặc model khác bạn thích
 )
-
+book_emb_model = SentenceTransformer(EMB_MODEL_NAME_BOOKS)
+# Model embedding cho majors
+MAJOR_EMB_MODEL = os.getenv(
+    "MAJOR_EMB_MODEL",
+    "keepitreal/vietnamese-sbert"
+)
+major_emb_model = SentenceTransformer(MAJOR_EMB_MODEL)
 print("[Books-Emb] Loading SentenceTransformer model:", EMB_MODEL_NAME_BOOKS)
 book_emb_model = SentenceTransformer(EMB_MODEL_NAME_BOOKS)
 
@@ -1018,92 +1024,92 @@ def answer_from_books(user_message: str) -> str:
 
 def classify_category(user_message: str) -> str:
     """
-    Phân loại intent bằng LLM:
-    - Tra cứu sách
-    - Thông tin ngành
-    - Hoặc category trong FAQ (Nhiệm vụ, Chức năng, Quy định,…)
+    Phân loại intent dùng LLM.
+    Ưu tiên LLM → fallback rule nhẹ nếu LLM trả linh tinh.
+    KHÔNG fuzzy, KHÔNG rule ép cứng như trước.
     """
+
     msg = (user_message or "").strip()
     if not msg:
         return "Tra cứu sách"
 
-    # ===== Lấy CATEGORY trong FAQ =====
+    # ===== 1. Lấy category thật trong FAQ =====
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT category FROM faq WHERE category IS NOT NULL")
         rows = cur.fetchall()
-        faq_categories = [r[0].strip() for r in rows if r[0]]
         conn.close()
+        faq_categories = [(r[0] or "").strip() for r in rows if r[0]]
     except:
         faq_categories = []
 
-    # ===== Lấy danh sách ngành =====
-    try:
-        conn = sqlite3.connect(FAQ_DB_PATH)
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM majors")
-        major_names = [r[0] for r in cur.fetchall()]
-        conn.close()
-    except:
-        major_names = []
+    faq_categories = sorted(set([c for c in faq_categories if c]))
 
-    list_faq = "\n".join(f"- {c}" for c in faq_categories)
-    list_majors = "\n".join(f"- {m}" for m in major_names)
+    # Category cố định
+    special = ["Tra cứu sách", "Thông tin ngành"]
+    allowed = special + faq_categories
 
-    allowed_outputs = (
-        ["Tra cứu sách", "Thông tin ngành"]
-        + faq_categories
-    )
+    def norm(s: str) -> str:
+        return normalize_vi((s or "").strip())
+
+    categories_list_str = "\n".join(f"- {c}" for c in allowed)
 
     system_prompt = f"""
-Bạn là trợ lý thư viện. Hãy phân loại câu hỏi của người dùng vào ĐÚNG MỘT category.
+Bạn là trợ lý thư viện.
+Nhiệm vụ: phân loại câu hỏi vào ĐÚNG MỘT category trong danh sách sau:
 
-Bạn CHỈ ĐƯỢC chọn 1 trong các category sau:
-
-=== CATEGORY SÁCH ===
-- Tra cứu sách
-
-=== CATEGORY NGÀNH ===
-- Thông tin ngành
-
-=== CATEGORY FAQ ===
-{list_faq}
-
-=== DANH SÁCH NGÀNH ===
-{list_majors}
+{categories_list_str}
 
 QUY TẮC:
-- Nếu câu hỏi liên quan sách, giáo trình, tài liệu → Tra cứu sách
-- Nếu câu hỏi liên quan ngành học, mô tả ngành, gõ tên ngành → Thông tin ngành
-- Nếu câu hỏi giống/thuộc một trong các category FAQ ở trên → trả đúng category FAQ đó
-
-CHỈ TRẢ VỀ MỘT CHUỖI DUY NHẤT.
-CHỈ TRẢ LỜI BẰNG TÊN CATEGORY, KHÔNG GIẢI THÍCH.
+- Về sách → "Tra cứu sách".
+- Về ngành học → "Thông tin ngành".
+- Về quy định, thủ tục, nhiệm vụ, chức năng, giờ mở cửa, nội quy → chọn đúng category trong FAQ.
+- KHÔNG bịa thêm category mới.
+- Chỉ được trả về đúng 1 category, không thêm chữ nào.
 """
 
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": system_prompt + "\n\nCâu của user: " + msg,
+        "prompt": system_prompt + "\n\nCâu hỏi: " + msg,
         "stream": False,
         "options": {"temperature": 0.0, "num_predict": 32},
     }
 
+    # ===== 2. Gọi LLM =====
     try:
-        r = requests.post(f"{OLLAMA_URL.rstrip('/')}/api/generate",
-                          json=payload, timeout=OLLAMA_TIMEOUT)
+        r = requests.post(
+            f"{OLLAMA_URL.rstrip('/')}/api/generate",
+            json=payload,
+            timeout=OLLAMA_TIMEOUT
+        )
         raw = (r.json().get("response") or "").strip().splitlines()[0]
+        c = raw.strip().lstrip("-•* ").strip('"').strip("'")
+        c_norm = norm(c)
 
-        # Nếu là category hợp lệ → trả về luôn
-        if raw in allowed_outputs:
-            return raw
-
-        # fallback
-        return "Tra cứu sách"
+        # Nếu LLM trả đúng → OK
+        for cat in allowed:
+            if c_norm == norm(cat):
+                return cat
 
     except Exception as e:
         print("[classify_category] LLM error:", e)
+
+    # ===== 3. Fallback rule (NHẸ, KHÔNG ép sai FAQ) =====
+    msg_n = norm(msg)
+
+    # hỏi ngành
+    if any(k in msg_n for k in ["nganh", "chuyen nganh", "ma nganh", "hoc nganh"]):
+        return "Thông tin ngành"
+
+    # hỏi sách
+    if any(k in msg_n for k in ["sach", "giáo trình", "giao trinh", "tai lieu"]):
         return "Tra cứu sách"
+
+    # cuối cùng → cho về sách (an toàn nhất)
+    return "Tra cứu sách"
+
+
 
 def detect_book_followup_intent(user_message: str) -> str:
     """
@@ -1180,12 +1186,12 @@ def process_message(sentence: str) -> str:
     tag_to_log: Optional[str] = None
     confidence: float = 0.0
     text_norm = normalize_vi(sentence)
-    handled_followup = False
 
     global LAST_BOOK_CONTEXT
+
     # ====== BƯỚC 1: xử lý câu hỏi tiếp theo về CUỐN SÁCH trước đó ======
     if LAST_BOOK_CONTEXT is not None and ollama_alive():
-        intent = detect_book_followup_intent(sentence)   # quantity | status | other | none
+        intent = detect_book_followup_intent(sentence)  # quantity | status | other | none
 
         if intent in ("quantity", "status", "other"):
             n, a, y, q, s, mj = LAST_BOOK_CONTEXT
@@ -1232,102 +1238,151 @@ def process_message(sentence: str) -> str:
 
             if reply:
                 tag_to_log = "Tra cứu sách (followup)"
-                # KHÔNG router nữa, nhảy xuống phần log/append luôn
-                # => bỏ qua phần embedding bên dưới
-    # ====== BƯỚC 2: chỉ router nếu CHƯA có reply từ follow-up ======
-    if reply is None and ollama_alive():
-        try:
-            # ========== TẦNG 1 — ƯU TIÊN SÁCH (EMBEDDING) ==========
-            book_hits = search_books_by_embedding(sentence, top_k=1, min_sim=0.55)
-            if book_hits:
+
+    # ====== BƯỚC 2: Router chính ======
+    if reply is None:
+        if ollama_alive():
+            # ----- 2A. Dùng LLM phân loại trước -----
+            try:
+                category = classify_category(sentence)
+            except Exception as e:
+                print("[process_message] classify_category error:", e)
+                category = None
+
+            if category:
+                tag_to_log = category
+
+            # 2A.1. Nếu LLM nói đây là câu hỏi về NGÀNH
+            if category == "Thông tin ngành":
+                reply = answer_from_majors(sentence)
+                tag_to_log = "Thông tin ngành"
+
+            # 2A.2. Nếu LLM nói đây là câu hỏi về SÁCH
+            elif category == "Tra cứu sách":
                 reply = answer_from_books(sentence)
                 tag_to_log = "Tra cứu sách"
 
-            # ========== TẦNG 2 — ƯU TIÊN NGÀNH (EMBEDDING) ==========
-            if reply is None or not reply.strip():
-                major_hits = search_majors_by_embedding(sentence, top_k=1)
-                if major_hits and major_hits[0][1] >= 0.55:
-                    idx, score, meta = major_hits[0]
-                    reply = answer_from_majors(sentence)
-                    tag_to_log = "Thông tin ngành"
-
-            # ========== TẦNG 3 — Router LLM (FAQ / fallback) ==========
-            if reply is None or not reply.strip():
-                category = classify_category(sentence)
-                tag_to_log = category
-
-                if category == "Thông tin ngành":
-                    reply = answer_from_majors(sentence)
-
-                elif category == "Tra cứu sách":
-                    reply = answer_from_books(sentence)
-
-                # 3.3 Category khác → dùng FAQ trong bảng faq
-                else:
-                    conn_faq = sqlite3.connect(FAQ_DB_PATH)   # faq.db
-                    cur_faq = conn_faq.cursor()
-                    cur_faq.execute("""
+            # 2A.3. Còn lại: xem như FAQ (Quy định, Nhiệm vụ, Chức năng, ...)
+            # 2A.3. Xử lý FAQ — không bịa, chỉ dùng dữ liệu SQLite
+            elif category and category not in ("Tra cứu sách", "Thông tin ngành"):
+                try:
+                    conn_faq = sqlite3.connect(FAQ_DB_PATH)
+                    cur = conn_faq.cursor()
+                    cur.execute("""
                         SELECT question, answer
                         FROM faq
                         WHERE category = ?
-                          AND (approved = 1 OR approved IS NULL)
+                        AND (approved = 1 OR approved IS NULL)
                     """, (category,))
-                    rows = cur_faq.fetchall()
+                    rows = cur.fetchall()
                     conn_faq.close()
+                except Exception as e:
+                    print("[FAQ SELECT error]", e)
+                    rows = []
 
-                    if rows:
-                        # Ghép block Q/A cho LLM đọc và trả lời
-                        faq_block_lines = []
-                        for idx, (q, a) in enumerate(rows, start=1):
-                            q = (q or "").strip()
-                            a = (a or "").strip()
-                            faq_block_lines.append(f"{idx}) Q: {q}\n   A: {a}")
-                        faq_block = "\n\n".join(faq_block_lines)
+                if rows:
+                    # Ghép block
+                    faq_block = "\n\n".join(
+                        f"{idx}) Q: {(q or '').strip()}\n   A: {(a or '').strip()}"
+                        for idx, (q, a) in enumerate(rows, 1)
+                    )
 
-                        answer_prompt = (
-                            "Bạn là chatbot của Thư viện.\n"
-                            f"CÂU HỎI CỦA NGƯỜI DÙNG:\n{sentence}\n\n"
-                            f"DANH SÁCH CÂU HỎI – CÂU TRẢ LỜI TRONG CATEGORY \"{category}\":\n\n"
-                            f"{faq_block}\n\n"
-                            "NHIỆM VỤ:\n"
-                            "1. Đọc kỹ câu hỏi của người dùng và các Answer (A) ở trên.\n"
-                            "2. Trả lời dựa trên NỘI DUNG các Answer này. Có thể ghép thông tin từ nhiều Answer nếu cần.\n"
-                            "3. KHÔNG được bịa thêm thông tin ngoài những gì có trong Answer.\n"
-                            "4. Nếu không có Answer nào phù hợp, hãy nói: "
-                            "\"Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này.\"\n\n"
-                            "Bây giờ hãy trả lời người dùng:"
-                        )
+                    answer_prompt = f"""
+            Bạn là trợ lý thư viện.
+            Chỉ được dùng NỘI DUNG có trong danh sách Answer dưới đây.
+            KHÔNG ĐƯỢC bịa thêm thông tin mới.
+            KHÔNG được đưa ví dụ không nằm trong danh sách.
+            Nếu không có Answer phù hợp → phải trả lời:
+            "Hiện tại mình chưa có thông tin chính xác trong hệ thống thư viện về câu hỏi này."
 
+            Câu hỏi của người dùng:
+            {sentence}
+
+            Danh sách Answer theo category "{category}":
+
+            {faq_block}
+
+            Hãy trả lời đúng nội dung, KHÔNG mở rộng ra ngoài.
+            """
+
+                    try:
                         payload = {
                             "model": OLLAMA_MODEL,
                             "prompt": answer_prompt,
                             "stream": False,
-                            "options": {
-                                "temperature": 0.2,
-                                "num_predict": 200
-                            }
+                            "options": {"temperature": 0.1, "num_predict": 200}
                         }
-
                         r = requests.post(
                             f"{OLLAMA_URL.rstrip('/')}/api/generate",
                             json=payload,
                             timeout=OLLAMA_TIMEOUT
                         )
                         if r.status_code == 200:
-                            reply_llm = (r.json().get("response") or "").strip()
-                            if reply_llm:
-                                reply = reply_llm
-                                confidence = 0.9  # tạm gán
+                            raw = (r.json().get("response") or "").strip()
+                            # Nếu LLM bịa ngoài dữ liệu → phát hiện và chặn lại
+                            if not raw or any(x in raw.lower() for x in [
+                                "ví dụ", "ví du", "example", "theo mình", "mình nghĩ"
+                            ]):
+                                reply = ("Hiện tại mình chưa có thông tin chính xác "
+                                        "trong hệ thống thư viện về câu hỏi này.")
+                            else:
+                                reply = raw
+                            confidence = 0.9
+                    except Exception as e:
+                        print("[FAQ LLM error]", e)
 
-        except Exception as e:
-            print("[process_message] FAQ/LLM error:", e)
+                # không tìm được -> fallback
+                if reply is None or not reply.strip():
+                    reply = ("Hiện tại mình chưa có thông tin chính xác "
+                            "trong hệ thống thư viện về câu hỏi này.")
+                    confidence = 0.5
 
-    # ====== Fallback nếu chưa có câu trả lời ======
+            # ----- 2B. Nếu LLM/FAQ không cho được câu trả lời → fallback embedding như cũ -----
+
+                if book_hits:
+                    reply = answer_from_books(sentence)
+                    tag_to_log = tag_to_log or "Tra cứu sách"
+
+                # majors embedding
+                if reply is None or not reply.strip():
+                    try:
+                        major_hits = search_majors_by_embedding(sentence, top_k=1)
+                    except Exception as e:
+                        print("[process_message] major-emb error:", e)
+                        major_hits = []
+
+                    if major_hits and major_hits[0][1] >= 0.55:
+                        reply = answer_from_majors(sentence)
+                        tag_to_log = tag_to_log or "Thông tin ngành"
+
+        else:
+            # ====== Ollama không sống → fallback thuần embedding (không FAQ) ======
+            try:
+                book_hits = search_books_by_embedding(sentence, top_k=1, min_sim=0.55)
+            except Exception as e:
+                print("[process_message] book-emb (no LLM) error:", e)
+                book_hits = []
+
+            if book_hits:
+                reply = answer_from_books(sentence)
+                tag_to_log = "Tra cứu sách"
+            else:
+                try:
+                    major_hits = search_majors_by_embedding(sentence, top_k=1)
+                except Exception as e:
+                    print("[process_message] major-emb (no LLM) error:", e)
+                    major_hits = []
+
+                if major_hits and major_hits[0][1] >= 0.55:
+                    reply = answer_from_majors(sentence)
+                    tag_to_log = "Thông tin ngành"
+
+    # ====== Fallback nếu vẫn chưa có câu trả lời ======
     if reply is None or not reply.strip():
         reply = "Xin lỗi, mình chưa hiểu ý bạn."
         confidence = 0.0
 
-    # ====== Append cho mượt (nếu bật) ======
+    # ====== Append thêm cho mượt (nếu bật) ======
     if ENABLE_OLLAMA_APPEND and reply.strip() and ollama_alive():
         extra = ollama_generate_continuation(reply, sentence, max_sentences=3)
         if extra:

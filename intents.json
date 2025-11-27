@@ -1,78 +1,69 @@
 {
   "intents": [
     {
-      "tag": "chao_hoi",
+      "tag": "greeting",
       "patterns": [
         "Xin chào",
         "Chào bạn",
         "Hi",
-        "Chào buổi sáng",
-        "Chào buổi tối"
+        "Hello",
+        "Chào bot",
+        "Có ai ở đó không"
       ],
       "responses": [
-        "Xin chào! Tôi có thể giúp gì cho bạn?",
-        "Chào bạn, bạn cần hỗ trợ gì?"
+        "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần giúp gì?",
+        "Chào bạn, tôi có thể hỗ trợ gì cho bạn hôm nay?"
       ]
     },
     {
-      "tag": "gio_mo_cua",
+      "tag": "faq",
       "patterns": [
         "Thư viện mở cửa lúc mấy giờ?",
-        "Thư viện hoạt động vào lúc nào?",
-        "Giờ mở cửa thư viện?",
-        "Mấy giờ thì thư viện mở?"
-      ],
-      "responses": [
-        "Thư viện mở cửa từ 7h30 sáng đến 5h chiều từ thứ 2 đến thứ 6.",
-        "Giờ mở cửa: 7h30 - 17h00, từ thứ 2 đến thứ 6."
-      ]
-    },
-    {
-      "tag": "muon_sach",
-      "patterns": [
+        "Giờ làm việc của thư viện",
         "Làm sao để mượn sách?",
-        "Tôi muốn mượn sách thì làm thế nào?",
-        "Quy trình mượn sách là gì?"
+        "Quy trình trả sách",
+        "Liên hệ thư viện thế nào?",
+        "Số điện thoại thư viện",
+        "Email của thư viện",
+        "Có wifi không?",
+        "Mật khẩu wifi là gì",
+        "Quy định mượn sách",
+        "Tôi bị mất thẻ thư viện"
       ],
       "responses": [
-        "Bạn cần mang thẻ sinh viên và đến quầy thủ thư để mượn sách.",
-        "Vui lòng trình thẻ sinh viên tại quầy để được mượn sách."
+        "Để tôi tra cứu thông tin quy định cho bạn..."
       ]
     },
     {
-      "tag": "tra_sach",
+      "tag": "books",
       "patterns": [
-        "Khi nào phải trả sách?",
-        "Thời hạn mượn sách là bao lâu?",
-        "Trả sách như thế nào?"
+        "Tìm sách lập trình",
+        "Có sách Python không?",
+        "Sách về kinh tế",
+        "Kiểm tra sách này còn không",
+        "Tác giả Nguyễn Nhật Ánh",
+        "Sách giáo trình Toán cao cấp",
+        "Tôi muốn tìm tài liệu về Marketing",
+        "Tra cứu sách",
+        "Danh sách sách mới"
       ],
       "responses": [
-        "Thời hạn mượn sách là 14 ngày kể từ ngày mượn.",
-        "Bạn có thể trả sách trực tiếp tại quầy thủ thư."
+        "Đợi chút, tôi sẽ tìm trong kho sách..."
       ]
     },
     {
-      "tag": "delivery",
+      "tag": "majors",
       "patterns": [
-        "Giao hàng mất bao lâu?",
-        "Bao lâu thì tôi nhận được hàng?",
-        "Thời gian ship là mấy ngày?"
+        "Ngành Công nghệ thông tin học gì?",
+        "Mã ngành Quản trị kinh doanh",
+        "Thông tin về ngành Kế toán",
+        "Chương trình đào tạo ngành Ngôn ngữ Anh",
+        "Ngành này ra trường làm gì?",
+        "Giới thiệu về khoa CNTT",
+        "Các ngành đào tạo của trường"
       ],
       "responses": [
-        "Thời gian giao hàng thường từ 2-4 ngày.",
-        "Bạn sẽ nhận được hàng trong vòng 2-4 ngày."
-      ]
-    },
-    {
-      "tag": "funny",
-      "patterns": [
-        "Kể chuyện cười đi",
-        "Cho tôi một câu đùa",
-        "Nói gì vui vui đi"
-      ],
-      "responses": [
-        "Tại sao máy tính không biết bơi? Vì nó sợ ‘crash’ 😆",
-        "Con ong mà đi học thì gọi là ong gì? — Ong đi học!"
+        "Để tôi lấy thông tin về ngành học này..."
       ]
     }
   ]
