@@ -42,14 +42,23 @@ for answer, category in rows:
     all_words.extend(tokens)
     xy.append((tokens, category))
 
-# Thêm dữ liệu chào hỏi cơ bản (hardcode vì trong DB không có)
-greeting_patterns = ["Xin chào", "Hi", "Hello", "Chào bạn"]
-for p in greeting_patterns:
-    tokens = tokenize(p)
-    all_words.extend(tokens)
-    xy.append((tokens, "GREETING"))
-if "GREETING" not in tags:
-    tags.append("GREETING")
+# Thêm dữ liệu từ intents.json (BOOKS, MAJORS, GREETING mở rộng)
+with open('intents.json', 'r', encoding='utf-8') as f:
+    intents = json.load(f)
+
+for intent in intents['intents']:
+    tag = intent['tag']
+    # Nếu tag chưa có trong DB (ví dụ BOOKS, MAJORS), thêm vào
+    if tag.upper() not in [t.upper() for t in tags]:
+        tags.append(tag)
+    
+    for pattern in intent['patterns']:
+        tokens = tokenize(pattern)
+        all_words.extend(tokens)
+        xy.append((tokens, tag))
+
+# Đảm bảo tags unique và sorted
+tags = sorted(list(set(tags)))
 
 ignore_words = ['?', '!', '.', ',']
 all_words = [stem(w) for w in all_words if w not in ignore_words]

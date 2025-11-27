@@ -320,42 +320,53 @@ def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: s
 # ============================================
 # 3B) SEMANTIC SEARCH CHO BOOKS / MAJORS
 # ============================================
-def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 5):
-    results = []
+def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
+    candidates = []
 
     if table == "BOOKS":
         if len(BOOK_EMB) == 0:
             return []
         sims = np.dot(BOOK_EMB, q_vec)
         rows = book_rows
-        th = 0.20 # Hạ ngưỡng sách
+        th = 0.15 # Hạ ngưỡng thấp để Rerank lọc
         idx = np.argsort(-sims)[:top_k]
         for i in idx:
             score = float(sims[i])
             if score < th:
                 continue
             n, a, y, qty, s, m = rows[i]
-            results.append(
-                f"- Sách: {n}\n  Tác giả: {a}\n  Năm: {y} | SL: {qty} | TT: {s}\n  Ngành: {m or 'Chung'}"
-            )
-        return results
+            # Format nội dung để LLM đọc hiểu
+            content = f"Sách: {n}. Tác giả: {a}. Năm: {y}. Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
+            candidates.append({
+                "score": score,
+                "question": "", 
+                "answer": content,
+                "category": "BOOKS",
+                "id": i
+            })
+        return candidates
 
     # MAJORS
     if len(MAJOR_EMB) == 0:
         return []
     sims = np.dot(MAJOR_EMB, q_vec)
     rows = major_rows
-    th = 0.25 # Hạ ngưỡng ngành
+    th = 0.20 
     idx = np.argsort(-sims)[:top_k]
     for i in idx:
         score = float(sims[i])
         if score < th:
             continue
         name, code, desc = rows[i]
-        results.append(
-            f"- Ngành: {name} (Mã: {code})\n  Mô tả: {desc or 'Đang cập nhật'}"
-        )
-    return results
+        content = f"Ngành: {name}. Mã ngành: {code}. Mô tả: {desc or 'Đang cập nhật'}"
+        candidates.append({
+            "score": score,
+            "question": "",
+            "answer": content,
+            "category": "MAJORS",
+            "id": i
+        })
+    return candidates
 
 
 # ============================================
@@ -416,6 +427,7 @@ Chỉ trả về 1 con số duy nhất.
 
 
 def strict_answer(question: str, knowledge: str) -> str:
+    print(f"[DEBUG STRICT] Q: {question} | Knowledge: {knowledge[:50]}...")
     prompt = f"""
 Bạn là trợ lý ảo của thư viện. 
 NHIỆM VỤ: Trả lời câu hỏi dựa trên thông tin cung cấp bên dưới.
@@ -426,27 +438,23 @@ THÔNG TIN (KNOWLEDGE):
 CÂU HỎI (QUESTION): "{question}"
 
 QUY TẮC BẮT BUỘC:
-1. ⚠️ TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT. (Không dùng tiếng Trung/Anh).
-2. Nếu thông tin có vẻ liên quan, HÃY TRẢ LỜI NGAY (đừng sợ sai).
-3. Nếu thông tin là danh sách, hãy trích xuất ý chính.
-4. Nếu câu hỏi dùng từ đồng nghĩa (ví dụ: "rách" = "hỏng"), hãy tự suy luận để trả lời.
-5. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
-6. Nếu câu hỏi về đối tượng cụ thể (ví dụ: "sách tham khảo") mà thông tin chỉ nói chung chung (ví dụ: "sách"), HÃY DÙNG THÔNG TIN CHUNG ĐÓ để trả lời.
-7. Nếu thông tin là SỐ ĐIỆN THOẠI, EMAIL, LINK -> Hãy trả lời ngay (ví dụ: "0987654321").
-8. Nếu thông tin là QUY TRÌNH (Trình thẻ, Quét mã...) -> Hãy trả lời các bước đó.
-9. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan dù chỉ một chút.
+1. ⚠️ TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT.
+2. Nếu thông tin có vẻ liên quan (dù chỉ một phần), HÃY TRẢ LỜI NGAY.
+3. Ví dụ: Hỏi "sách công nghệ" mà có "Công nghệ phần mềm" -> TRẢ LỜI thông tin sách đó.
+4. Nếu thông tin là danh sách, hãy trích xuất ý chính.
+5. ⚠️ ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN (Ví dụ: "Nguyễn Thị A" không được viết là "Nguyễn Thị").
+6. Nếu câu hỏi dùng từ đồng nghĩa, hãy tự suy luận.
+7. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
+8. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan.
 
 Nếu thông tin HOÀN TOÀN KHÔNG LIÊN QUAN thì mới nói: "{FALLBACK_MSG}"
 
-Ví dụ:
-- Info: "Mất sách đền gấp đôi" -> Hỏi: "Làm rách bị phạt ko?" -> Trả lời: "Có, bạn phải đền gấp đôi."
-- Info: "0262.3825180" -> Hỏi: "Số nào?" -> Trả lời: "0262.3825180"
-- Info: "Trình thẻ và tài liệu..." -> Hỏi: "Cách trả sách?" -> Trả lời: "Bạn cần trình thẻ và tài liệu cho cán bộ."
-
 Câu trả lời của bạn (Tiếng Việt):
 """
-    # Tăng temp lên để bot "dám" trả lời hơn
-    out = llm(prompt, temp=0.3, n=256) 
+    # Tăng temp lên để bot "dám" trả lời hơn -> UPDATE: Giảm xuống để chính xác tên riêng
+    out = llm(prompt, temp=0.05, n=256) 
+    print(f"[DEBUG STRICT OUT] {out}")
+    
     if not out:
         return FALLBACK_MSG
 
@@ -467,6 +475,7 @@ Câu trả lời của bạn (Tiếng Việt):
 #  MAIN PROCESS
 # ============================================
 def process_message(text: str) -> str:
+    print("[CHAT.PY] ĐÃ GỌI NÃO")
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
 
@@ -490,63 +499,76 @@ def process_message(text: str) -> str:
     if route == "GREETING" and not is_real_question:
         return "Xin chào! Tôi là trợ lý ảo thư viện (đã được train). Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
 
+    # HEURISTIC: Sửa lỗi Router đoán sai (ví dụ: "sách python" -> GREETING)
+    lower_text = text.lower()
+    
+    # 1. Nếu có từ khóa SÁCH/GIÁO TRÌNH mà không có từ khóa QUY TRÌNH -> Force BOOKS
+    if any(w in lower_text for w in ["sách", "giáo trình", "tài liệu", "tác giả", "ấn phẩm"]):
+        # Trừ các trường hợp hỏi quy định (mượn, trả, phòng, giờ...)
+        if not any(w in lower_text for w in ["mượn", "trả", "quy định", "nội quy", "giờ", "phòng", "thủ tục", "hướng dẫn"]):
+            print("[DEBUG] Heuristic: Force route -> BOOKS")
+            route = "BOOKS"
+
+    # 2. Nếu có từ khóa NGÀNH/KHOA -> Force MAJORS
+    if any(w in lower_text for w in ["ngành", "khoa", "đào tạo", "mã ngành"]):
+        print("[DEBUG] Heuristic: Force route -> MAJORS")
+        route = "MAJORS"
+
     # Nếu route là BOOKS hoặc MAJORS -> Xử lý riêng
     if route == "BOOKS":
-        # ... (giữ nguyên logic BOOKS)
-        pass 
-    elif route == "MAJORS":
-        # ... (giữ nguyên logic MAJORS)
-        pass
-    else:
-        # Trường hợp còn lại: FAQ hoặc CÁC CATEGORY CỤ THỂ (Giờ mở cửa, Liên hệ...)
-        # Nếu route không phải là "FAQ" chung chung, thì nó chính là filter_category
-        filter_cat = route if route != "FAQ" else None
-        
-        print(f"\n[DEBUG] Filter Category: {filter_cat}")
-
-        # BƯỚC 1: Tìm TOÀN BỘ FAQ (Bỏ lọc Category để tăng Recall)
-        # Lý do: Router đôi khi đoán sai (ví dụ: "Hướng dẫn trả sách" -> đoán là "Nhiệm vụ" thay vì "Quy định")
-        # Nếu lọc cứng sẽ mất câu trả lời đúng.
-        # Ta cứ lấy Top 15 câu liên quan nhất bất kể chủ đề, rồi để Rerank LLM chọn.
-        candidates = search_faq_candidates(q_vec, top_k=20, filter_category=None)
-            
+        candidates = search_nonfaq("BOOKS", q_vec, top_k=15)
         if not candidates:
-            print("[DEBUG] ❌ Không tìm thấy candidate nào (do điểm thấp hơn ngưỡng).")
-            return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
-
-        print(f"[DEBUG] Found {len(candidates)} candidates:")
-        for c in candidates:
-            print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
-
-        # Rerank
+             return "Không tìm thấy sách nào phù hợp."
+        
+        print(f"[DEBUG BOOKS] Found {len(candidates)} candidates.")
         best_cand = rerank_with_llm(rewritten, candidates)
         if not best_cand:
-             print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates.")
-             # Fallback: lấy top 1
+             # Fallback top 1
              best_cand = candidates[0]
-        else:
-             print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
-
-        # Strict Answer
-        final_ans = strict_answer(rewritten, best_cand['answer'])
-        return final_ans
-
-    # Logic cũ cho BOOKS và MAJORS (để code không bị lỗi indentation, ta viết lại đoạn này)
-    if route == "BOOKS":
-        results = search_nonfaq("BOOKS", q_vec, top_k=5)
-        if not results:
-             return "Không tìm thấy sách nào phù hợp."
-        knowledge = "\n".join(results)
-        return strict_answer(rewritten, knowledge)
+        
+        return strict_answer(rewritten, best_cand['answer'])
 
     if route == "MAJORS":
-        results = search_nonfaq("MAJORS", q_vec, top_k=5)
-        if not results:
+        candidates = search_nonfaq("MAJORS", q_vec, top_k=15)
+        if not candidates:
              return "Không tìm thấy ngành học nào phù hợp."
-        knowledge = "\n".join(results)
-        return strict_answer(rewritten, knowledge)
+        
+        print(f"[DEBUG MAJORS] Found {len(candidates)} candidates.")
+        best_cand = rerank_with_llm(rewritten, candidates)
+        if not best_cand:
+             best_cand = candidates[0]
+             
+        return strict_answer(rewritten, best_cand['answer'])
     
-    return "Xin lỗi, tôi không hiểu yêu cầu."
+    # Trường hợp còn lại: FAQ hoặc CÁC CATEGORY CỤ THỂ
+    # Nếu route không phải là "FAQ" chung chung, thì nó chính là filter_category
+    filter_cat = route if route != "FAQ" else None
+    
+    print(f"\n[DEBUG] Filter Category: {filter_cat}")
+
+    # BƯỚC 1: Tìm TOÀN BỘ FAQ (Bỏ lọc Category để tăng Recall)
+    candidates = search_faq_candidates(q_vec, top_k=20, filter_category=None)
+        
+    if not candidates:
+        print("[DEBUG] ❌ Không tìm thấy candidate nào (do điểm thấp hơn ngưỡng).")
+        return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
+
+    print(f"[DEBUG] Found {len(candidates)} candidates:")
+    for c in candidates:
+        print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
+
+    # Rerank
+    best_cand = rerank_with_llm(rewritten, candidates)
+    if not best_cand:
+            print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates.")
+            # Fallback: lấy top 1
+            best_cand = candidates[0]
+    else:
+            print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
+
+    # Strict Answer
+    final_ans = strict_answer(rewritten, best_cand['answer'])
+    return final_ans
 
 
 # ============================================
