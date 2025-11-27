@@ -1,27 +1,28 @@
-
 import torch
-import os
 
-FILE = "data.pth"
+path = "data.pth"
 
-if not os.path.exists(FILE):
-    print(f"File {FILE} không tồn tại!")
-else:
-    print(f"--- ĐANG ĐỌC FILE {FILE} ---")
-    data = torch.load(FILE, map_location=torch.device('cpu'))
-    
-    print("\n1. CÁC THÔNG SỐ CẤU HÌNH (METADATA):")
-    print(f"- input_size (Số lượng từ vựng): {data['input_size']}")
-    print(f"- hidden_size (Số neuron lớp ẩn): {data['hidden_size']}")
-    print(f"- output_size (Số lượng Category): {data['output_size']}")
-    
-    print("\n2. DANH SÁCH CATEGORY (TAGS):")
-    print(data['tags'])
-    
-    print("\n3. TRỌNG SỐ MÔ HÌNH (MODEL STATE):")
-    for key, tensor in data['model_state'].items():
-        print(f"- {key}: kích thước {tensor.shape}")
-        
-    print("\n4. TỪ ĐIỂN (ALL WORDS - Một vài từ đầu tiên):")
-    print(data['all_words'][:20]) # In 20 từ đầu tiên
-    print(f"... và {len(data['all_words']) - 20} từ khác.")
+data = torch.load(path, map_location="cpu")
+
+print("Loại dữ liệu:", type(data))
+print("Các key trong file:", list(data.keys()))
+
+# In FULL ALL_WORDS
+all_words = data.get("all_words", [])
+print("\n===== FULL TỪ ĐIỂN (ALL WORDS) =====")
+for i, w in enumerate(all_words):
+    print(f"{i+1}. {w}")
+print("===== TỔNG SỐ TỪ:", len(all_words), "=====")
+
+# In TAGS
+tags = data.get("tags", [])
+print("\n===== CÁC CATEGORY (TAGS) =====")
+for t in tags:
+    print("-", t)
+print("===== TỔNG SỐ TAG:", len(tags), "=====")
+
+# In info model
+model_state = data.get("model_state", {})
+print("\n===== TRỌNG SỐ MÔ HÌNH =====")
+for k, v in model_state.items():
+    print(f"{k}: {v.shape}")
