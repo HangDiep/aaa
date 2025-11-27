@@ -188,15 +188,33 @@ def route_llm(question: str, q_vec: np.ndarray) -> str:
 
     # B1: Dùng LLM (Reasoning)
     prompt = f"""
-Phân loại câu hỏi vào 1 trong 3 nhóm:
-1. FAQ: Quy định, thủ tục, giờ mở cửa, liên hệ, wifi, TỔNG SỐ LƯỢNG tài liệu, thống kê, VỊ TRÍ phòng ốc, địa điểm...
-2. BOOKS: Tìm sách cụ thể, giáo trình, tài liệu tham khảo, tác giả, kiểm tra sách còn không...
-3. MAJORS: Ngành học, mã ngành, chương trình đào tạo, khoa...
+Phân loại câu hỏi sau vào 1 trong 3 nhóm:
 
-LƯU Ý: 
-- Hỏi về "Tổng số lượng" hoặc "Thống kê" -> Chọn FAQ.
-- Hỏi về "Ở đâu", "Phòng nào", "Tầng mấy" -> Chọn FAQ.
-- Hỏi về "Quy trình", "Thủ tục", "Cách mượn/trả" -> Chọn FAQ (kể cả có từ "sách").
+1. FAQ:
+   - Câu hỏi về QUY ĐỊNH, LUẬT, THỦ TỤC, HƯỚNG DẪN.
+   - Ví dụ: mượn/trả như thế nào, mượn tối đa bao nhiêu, mượn bao lâu, có bị phạt không,
+     giờ mở cửa, liên hệ ở đâu, wifi, tài khoản, tổng số tài liệu, thống kê, vị trí/phòng/tầng.
+
+2. BOOKS:
+   - Câu hỏi về VIỆC TÌM SÁCH CỤ THỂ hoặc LOẠI SÁCH.
+   - Ví dụ: có sách gì về chủ đề X, có sách lập trình không, sách Python còn không,
+     tác giả của sách Y là ai, giáo trình của ngành Z là gì.
+
+3. MAJORS:
+   - Câu hỏi về NGÀNH HỌC, MÃ NGÀNH, KHOA, CHƯƠNG TRÌNH ĐÀO TẠO.
+
+LƯU Ý QUAN TRỌNG:
+- Nếu người dùng đang hỏi VỀ LUẬT / GIỚI HẠN / THỜI GIAN / CÁCH THỨC mượn/trả sách,
+  thì đó là câu hỏi về QUY ĐỊNH ⇒ chọn FAQ,
+  kể cả trong câu có từ "sách", "tài liệu".
+- Nếu người dùng đang hỏi XEM CÓ NHỮNG CUỐN SÁCH NÀO, SÁCH GÌ, SÁCH NÀO PHÙ HỢP,
+  thì đó là câu hỏi tìm kiếm sách ⇒ chọn BOOKS.
+
+Ví dụ:
+- "Mượn sách tham khảo tối đa được bao nhiêu quyển?" ⇒ FAQ.
+- "Thư viện có sách tham khảo về trí tuệ nhân tạo không?" ⇒ BOOKS.
+- "Ngành Công nghệ thông tin là gì?" ⇒ MAJORS.
+
 
 Câu hỏi: "{question}"
 
