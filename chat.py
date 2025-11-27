@@ -3,13 +3,14 @@
 #  Router (LLM + Embedding) → Rewrite (LLM)
 #  → Search (Embedding + LLM Rerank) → Strict Answer (LLM)
 #  Model LLM:  qwen2.5:3b  (ollama)
-#  Model Emb:  BAAI/bge-large-en-v1.5
+#  Model Emb:  BAAI/bge-m3
 # ============================================
 
+import os
+import re
 import sqlite3
 import requests
 import numpy as np
-import os
 from sentence_transformers import SentenceTransformer
 
 FAQ_DB_PATH = "faq.db"
@@ -20,11 +21,10 @@ TIMEOUT = 20
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
 # ============================================
-#  EMBEDDING MODEL (Vietnamese SBERT)
+#  EMBEDDING MODEL
 # ============================================
 print("Đang tải model embedding (lần đầu sẽ hơi lâu)...")
 try:
-    # BAAI/bge-m3 là SOTA đa ngôn ngữ (trong đó có tiếng Việt)
     embed_model = SentenceTransformer("BAAI/bge-m3")
 except Exception as e:
     print(f"⚠ Lỗi load model embedding: {e}")
@@ -87,6 +87,7 @@ else:
 
     FAQ_TEXTS = []
     for q, a, cat in faq_rows:
+        # Nhúng Category + Answer để tạo chunk kiến thức rõ nghĩa
         content = f"{cat or ''}: {a or ''}"
         FAQ_TEXTS.append(normalize(content))
 
@@ -134,11 +135,12 @@ else:
 
 
 # ============================================
-#  ROUTER – FALLBACK BẰNG EMBEDDING
+#  ROUTER – FALLBACK BẰNG EMBEDDING (REAL DB)
 # ============================================
 def auto_route_by_embedding(q_vec: np.ndarray) -> str:
     """
-    Nếu LLM phân loại linh tinh → dùng embedding chọn bảng nào gần nhất.
+    Nếu LLM phân loại linh tinh → dùng embedding chọn bảng nào gần nhất
+    dựa trên dữ liệu thật trong FAQ/BOOKS/MAJORS.
     """
     best_type = "FAQ"
     best_score = -1.0
@@ -165,60 +167,60 @@ def auto_route_by_embedding(q_vec: np.ndarray) -> str:
 # ============================================
 def is_greeting(text: str) -> bool:
     t = text.lower().strip()
-    # Câu rất ngắn, mang tính chào hỏi
     greet_words = ["xin chào", "chào bạn", "chào ad", "hello", "hi", "alo"]
     return any(w in t for w in greet_words)
-
-
-# ============================================
-#  DUMMY INTENT (GIỮ TÊN HÀM, BỎ MODEL CŨ)
-# ============================================
-def predict_intent(sentence):
-    """
-    Hàm giữ lại cho tương thích, nhưng KHÔNG dùng model data.pth nữa.
-    Luôn trả về None để router dùng LLM + Embedding.
-    """
-    return None
 
 
 # ============================================
 # 1) ROUTER – 100% LLM + EMBEDDING (KHÔNG DÙNG data.pth)
 # ============================================
 def route_llm(question: str, q_vec: np.ndarray) -> str:
-    # B0: Nếu là câu chào ngắn → GREETING luôn
+    """
+    HYBRID ROUTER:
+    1. Hỏi LLM (Reasoning): "Câu này thuộc nhóm nào?"
+    2. Nếu LLM trả đúng (BOOKS/MAJORS/FAQ) -> Tin nó.
+    3. Nếu LLM trả linh tinh -> Dùng auto_route_by_embedding (vector từ DB thật).
+    """
+    # B0: Check Greeting nhanh
     if is_greeting(question) and len(question.split()) <= 4:
         print("[ROUTER] Detected GREETING")
         return "GREETING"
 
-    # (Giữ predict_intent để không lỗi, nhưng nó luôn trả None)
-    intent = predict_intent(question)
-    if intent:
-        # Trong tương lai nếu bạn train intent mới thì chỗ này vẫn dùng được
-        print(f"[ML Predict] Intent: {intent}")
-        return intent
-
-    # B1: Dùng LLM phân loại câu hỏi vào 3 nhóm lớn
+    # B1: Dùng LLM (Reasoning)
     prompt = f"""
-Phân loại câu hỏi của sinh viên vào 1 trong 3 nhóm sau:
+Phân loại câu hỏi vào 1 trong 3 nhóm:
+1. FAQ: Quy định, thủ tục, giờ mở cửa, liên hệ, wifi, TỔNG SỐ LƯỢNG tài liệu, thống kê, VỊ TRÍ phòng ốc, địa điểm...
+2. BOOKS: Tìm sách cụ thể, giáo trình, tài liệu tham khảo, tác giả, kiểm tra sách còn không...
+3. MAJORS: Ngành học, mã ngành, chương trình đào tạo, khoa...
 
-1. FAQ: Hỏi về quy định, thủ tục, giờ mở cửa, liên hệ, mượn trả sách, wifi, tài khoản...
-2. BOOKS: Hỏi tìm sách, giáo trình, tài liệu, tác giả, kiểm tra sách còn không...
-3. MAJORS: Hỏi thông tin về các ngành học, mã ngành, chương trình đào tạo...
+LƯU Ý: 
+- Hỏi về "Tổng số lượng" hoặc "Thống kê" -> Chọn FAQ.
+- Hỏi về "Ở đâu", "Phòng nào", "Tầng mấy" -> Chọn FAQ.
+- Hỏi về "Quy trình", "Thủ tục", "Cách mượn/trả" -> Chọn FAQ (kể cả có từ "sách").
 
 Câu hỏi: "{question}"
 
 Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
 """
-    out = llm(prompt, temp=0.05, n=10).upper().strip()
-    print(f"[ROUTER LLM] Raw output: {out}")
+    out = llm(prompt, temp=0.05, n=10)
+    out_upper = (out or "").upper()
+    print(f"[ROUTER LLM] Raw output: {out_upper!r}")
 
-    if out in ["FAQ", "BOOKS", "MAJORS"]:
-        return out
+    if "FAQ" in out_upper:
+        print("[ROUTER] ✅ LLM chọn: FAQ")
+        return "FAQ"
+    if "BOOKS" in out_upper:
+        print("[ROUTER] ✅ LLM chọn: BOOKS")
+        return "BOOKS"
+    if "MAJORS" in out_upper:
+        print("[ROUTER] ✅ LLM chọn: MAJORS")
+        return "MAJORS"
 
-    # B2: Fallback embedding nếu LLM trả linh tinh
-    r = auto_route_by_embedding(q_vec)
-    print(f"[ROUTER EMBEDDING] Fallback route: {r}")
-    return r
+    # B2: Fallback = Vector theo DB thật
+    print("[ROUTER] ⚠️ LLM không chắc chắn -> Dùng auto_route_by_embedding (Real DB)...")
+    fallback_route = auto_route_by_embedding(q_vec)
+    print(f"[ROUTER] -> Vector (DB) chọn: {fallback_route}")
+    return fallback_route
 
 
 # ============================================
@@ -249,7 +251,7 @@ Câu viết lại (chỉ viết 1 câu duy nhất):
 
 
 # ============================================
-# 3A) SEMANTIC SEARCH CHO FAQ – CÓ LỌC CATEGORY (CHƯA DÙNG)
+# 3A) SEMANTIC SEARCH CHO FAQ
 # ============================================
 def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None):
     if len(FAQ_EMB) == 0:
@@ -300,7 +302,10 @@ def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
             if score < th:
                 continue
             n, a, y, qty, s, m = rows[i]
-            content = f"Sách: {n}. Tác giả: {a}. Năm: {y}. Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
+            content = (
+                f"Sách: {n}. Tác giả: {a}. Năm: {y}. "
+                f"Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
+            )
             candidates.append({
                 "score": score,
                 "question": "",
@@ -367,13 +372,13 @@ Chỉ trả về 1 con số duy nhất.
 """
     out = llm(prompt, temp=0.1, n=128).strip()
 
-    import re
     match = re.search(r'\d+', out)
     if match:
         idx = int(match.group()) - 1
         if 0 <= idx < len(candidates):
             return candidates[idx]
 
+    # Fallback: tin top 1 nếu score rất cao
     if candidates and candidates[0]['score'] > 0.45:
         print(f"[Rerank] LLM từ chối, nhưng Top 1 score cao ({candidates[0]['score']:.2f}) -> Chọn Top 1.")
         return candidates[0]
@@ -414,6 +419,7 @@ Câu trả lời của bạn (Tiếng Việt):
 
     out = out.strip()
 
+    # Chấp nhận câu trả lời có số / email / link
     if any(c.isdigit() for c in out) or "@" in out or "http" in out:
         return out
 
@@ -441,27 +447,9 @@ def process_message(text: str) -> str:
     rewritten = rewrite_question(text)
     q_vec = embed_model.encode(normalize(rewritten), normalize_embeddings=True)
 
-    # B3 + B4
-    is_real_question = len(text.split()) > 3 or any(
-        w in text.lower()
-        for w in ["ở đâu", "sách", "phòng", "bao nhiêu", "khi nào", "mấy giờ", "là gì"]
-    )
 
-    if route == "GREETING" and not is_real_question:
+    if route == "GREETING":
         return "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
-
-    lower_text = text.lower()
-
-    # Heuristic 1: từ khóa sách → BOOKS
-    if any(w in lower_text for w in ["sách", "giáo trình", "tài liệu", "tác giả", "ấn phẩm"]):
-        if not any(w in lower_text for w in ["mượn", "trả", "quy định", "nội quy", "giờ", "phòng", "thủ tục", "hướng dẫn"]):
-            print("[DEBUG] Heuristic: Force route -> BOOKS")
-            route = "BOOKS"
-
-    # Heuristic 2: ngành/khoa → MAJORS
-    if any(w in lower_text for w in ["ngành", "khoa", "đào tạo", "mã ngành"]):
-        print("[DEBUG] Heuristic: Force route -> MAJORS")
-        route = "MAJORS"
 
     # BOOKS
     if route == "BOOKS":
