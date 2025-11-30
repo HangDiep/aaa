@@ -6,7 +6,7 @@ from starlette.responses import FileResponse
 from pathlib import Path
 import sys
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from chat_fixed import process_message
 import os
 app = FastAPI()
 # Mount static folder

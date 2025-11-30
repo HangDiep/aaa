@@ -10,8 +10,11 @@ queries = [
     "Ngành Công nghệ thông tin",      # Expect: MAJORS
     "Sách Mắt Biếc còn không",        # Expect: BOOKS
     "Quy trình mượn trả sách",        # Expect: FAQ
-    "Phòng đọc sách tại chỗ ở đâu",   # Expect: FAQ (Fixing MAJORS misclassification)
-    "Phòng máy tra cứu ở tầng mấy"    # Expect: FAQ
+    "Phòng đọc sách tại chỗ ở đâu",   # Expect: FAQ
+    "Phòng máy tra cứu ở tầng mấy",   # Expect: FAQ
+    "Khuôn viên trường có cây xi không", # Expect: FAQ (Implicit Fallback)
+    "Canteen bán đồ ăn gì",           # Expect: FAQ (Implicit Fallback)
+    "Thời tiết hôm nay thế nào"       # Expect: FAQ (Implicit Fallback)
 ]
 
 print("--- Testing Semantic Router ---")

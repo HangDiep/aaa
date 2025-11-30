@@ -178,7 +178,7 @@ def route_llm(question: str, q_vec: np.ndarray) -> str:
     """
     HYBRID ROUTER:
     1. Hỏi LLM (Reasoning): "Câu này thuộc nhóm nào?"
-    2. Nếu LLM trả đúng (BOOKS/MAJORS/FAQ) -> Tin nó.
+    2. Nếu LLM trả đúng (BOOKS/MAJORS/FAQ/OTHER) -> Tin nó.
     3. Nếu LLM trả linh tinh -> Dùng auto_route_by_embedding (vector từ DB thật).
     """
     # B0: Check Greeting nhanh
@@ -188,54 +188,46 @@ def route_llm(question: str, q_vec: np.ndarray) -> str:
 
     # B1: Dùng LLM (Reasoning)
     prompt = f"""
-Phân loại câu hỏi sau vào 1 trong 3 nhóm:
+Phân loại câu hỏi vào 1 trong 3 nhóm dựa trên BẢN CHẤT:
 
-1. FAQ:
-   - Câu hỏi về QUY ĐỊNH, LUẬT, THỦ TỤC, HƯỚNG DẪN.
-   - Ví dụ: mượn/trả như thế nào, mượn tối đa bao nhiêu, mượn bao lâu, có bị phạt không,
-     giờ mở cửa, liên hệ ở đâu, wifi, tài khoản, tổng số tài liệu, thống kê, vị trí/phòng/tầng.
+1. BOOKS (Sách & Tài liệu):
+   - Chỉ chọn khi người dùng tìm kiếm TÀI LIỆU, SÁCH, GIÁO TRÌNH, LUẬN VĂN cụ thể.
+   - Ví dụ: "Tìm sách Python", "Giáo trình Kinh tế lượng", "Tài liệu về AI".
 
-2. BOOKS:
-   - Câu hỏi về VIỆC TÌM SÁCH CỤ THỂ hoặc LOẠI SÁCH.
-   - Ví dụ: có sách gì về chủ đề X, có sách lập trình không, sách Python còn không,
-     tác giả của sách Y là ai, giáo trình của ngành Z là gì.
+2. MAJORS (Ngành học & Đào tạo):
+   - Chỉ chọn khi người dùng hỏi về CHƯƠNG TRÌNH ĐÀO TẠO, TUYỂN SINH, KHOA/VIỆN.
+   - Ví dụ: "Ngành CNTT học gì", "Mã ngành 7480201", "Khoa Luật ở đâu".
 
-3. MAJORS:
-   - Câu hỏi về NGÀNH HỌC, MÃ NGÀNH, KHOA, CHƯƠNG TRÌNH ĐÀO TẠO.
+3. FAQ (Thông tin chung & Khác):
+   - TẤT CẢ các câu hỏi còn lại.
+   - Bao gồm: Quy định, Thủ tục, Giờ làm việc, Wifi, Tài khoản.
+   - Bao gồm: CƠ SỞ VẬT CHẤT, ĐỊA ĐIỂM (Phòng ốc, Canteen, Bãi xe...), SỰ KIỆN.
+   - Bao gồm: SỐ LƯỢNG, THỐNG KÊ (Tổng số sách, Có bao nhiêu tài liệu...).
 
-LƯU Ý QUAN TRỌNG:
-- Nếu người dùng đang hỏi VỀ LUẬT / GIỚI HẠN / THỜI GIAN / CÁCH THỨC mượn/trả sách,
-  thì đó là câu hỏi về QUY ĐỊNH ⇒ chọn FAQ,
-  kể cả trong câu có từ "sách", "tài liệu".
-- Nếu người dùng đang hỏi XEM CÓ NHỮNG CUỐN SÁCH NÀO, SÁCH GÌ, SÁCH NÀO PHÙ HỢP,
-  thì đó là câu hỏi tìm kiếm sách ⇒ chọn BOOKS.
-
-Ví dụ:
-- "Mượn sách tham khảo tối đa được bao nhiêu quyển?" ⇒ FAQ.
-- "Thư viện có sách tham khảo về trí tuệ nhân tạo không?" ⇒ BOOKS.
-- "Ngành Công nghệ thông tin là gì?" ⇒ MAJORS.
-
+LƯU Ý ƯU TIÊN:
+- Hỏi về "Tổng số lượng", "Thống kê", "Có bao nhiêu" -> CHỌN FAQ (kể cả có từ "sách").
+- Hỏi về "Ở đâu", "Phòng nào", "Tầng mấy" (Vị trí) -> CHỌN FAQ (kể cả có từ "sách").
+- Nếu câu hỏi không rõ ràng -> CHỌN FAQ.
 
 Câu hỏi: "{question}"
 
 Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
 """
-    out = llm(prompt, temp=0.05, n=10)
-    out_upper = (out or "").upper()
-    print(f"[ROUTER LLM] Raw output: {out_upper!r}")
+    # Temp thấp để nó không sáng tạo
+    out = llm(prompt, temp=0.05, n=10).upper().strip()
+    
+    # Xử lý output (bỏ dấu chấm, khoảng trắng thừa)
+    import re
+    clean_out = re.sub(r'[^A-Z]', '', out) 
+    
+    print(f"[ROUTER LLM] Output: '{out}' -> Clean: '{clean_out}'")
 
-    if "FAQ" in out_upper:
-        print("[ROUTER] ✅ LLM chọn: FAQ")
-        return "FAQ"
-    if "BOOKS" in out_upper:
-        print("[ROUTER] ✅ LLM chọn: BOOKS")
-        return "BOOKS"
-    if "MAJORS" in out_upper:
-        print("[ROUTER] ✅ LLM chọn: MAJORS")
-        return "MAJORS"
+    if clean_out in ["FAQ", "BOOKS", "MAJORS"]:
+        print(f"[ROUTER] ✅ LLM chọn: {clean_out}")
+        return clean_out
 
-    # B2: Fallback = Vector theo DB thật
-    print("[ROUTER] ⚠️ LLM không chắc chắn -> Dùng auto_route_by_embedding (Real DB)...")
+    # B2: Fallback bằng Vector (Real DB)
+    print(f"[ROUTER] ⚠️ LLM không chắc chắn -> Dùng auto_route_by_embedding (Real DB)...")
     fallback_route = auto_route_by_embedding(q_vec)
     print(f"[ROUTER] -> Vector (DB) chọn: {fallback_route}")
     return fallback_route
@@ -416,11 +408,11 @@ THÔNG TIN (KNOWLEDGE):
 CÂU HỎI (QUESTION): "{question}"
 
 QUY TẮC BẮT BUỘC:
-1. ⚠️ TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT.
+1. TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT.
 2. Nếu thông tin có vẻ liên quan (dù chỉ một phần), HÃY TRẢ LỜI NGAY.
 3. Ví dụ: Hỏi "sách công nghệ" mà có "Công nghệ phần mềm" -> TRẢ LỜI thông tin sách đó.
 4. Nếu thông tin là danh sách, hãy trích xuất ý chính.
-5. ⚠️ ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN.
+5. ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN.
 6. Nếu câu hỏi dùng từ đồng nghĩa, hãy tự suy luận.
 7. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
 8. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan.
