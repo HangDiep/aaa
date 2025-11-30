@@ -1,5 +1,6 @@
 # state_manager.py  (FSM phiên bản khớp flows.json của bạn)
 import re
+import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
