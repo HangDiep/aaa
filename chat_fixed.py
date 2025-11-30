@@ -13,11 +13,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import socket
 from datetime import datetime
-
+import easyocr
+import cv2  # Từ opencv-python-headless
 
 
 # ============== CẤU HÌNH ==============
-ENV_PATH = r"D:\HTML\a\rag\.env"
+ENV_PATH = r"D:\aaa\rag\data\.env"
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)

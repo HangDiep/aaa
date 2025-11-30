@@ -4,7 +4,7 @@ import os
 
 app = FastAPI()
 
-FAQ_DB_PATH = os.path.normpath(r"C:\Users\ADMIN\OneDrive\Desktop\aaa\faq.db")
+FAQ_DB_PATH = os.path.normpath(r"D:\aaa\faq.db")
 
 # =========================
 # FAQ Search
