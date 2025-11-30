@@ -9,6 +9,8 @@ import numpy as np
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
 
+
+
 app = FastAPI()
 
 # === PHỤC VỤ FILE TĨNH ===
