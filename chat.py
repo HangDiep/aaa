@@ -13,7 +13,7 @@ import requests
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-FAQ_DB_PATH = "faq.db"
+FAQ_DB_PATH = r"D:\HTML\a - Copy\faq.db"
 OLLAMA_URL = "http://127.0.0.1:11434"
 MODEL = "qwen2.5:3b"
 TIMEOUT = 20
