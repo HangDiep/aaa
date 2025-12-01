@@ -9,8 +9,10 @@ import socket
 from datetime import datetime
 import chat
 import requests 
+from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, Request
 
-
+app = FastAPI()
 
 # ============== CẤU HÌNH ==============
 ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
@@ -433,6 +435,7 @@ def _ntn_session():
     s.mount("https://", HTTPAdapter(max_retries=retry))
     s.mount("http://", HTTPAdapter(max_retries=retry))
     return s
+
 def get_recent_history(limit=6):
     """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
     try:
@@ -451,6 +454,53 @@ def get_recent_history(limit=6):
         return rows
     except Exception:
         return []
+import requests
+
+PAGE_ACCESS_TOKEN = "EAAhDPBwKENoBQGsRQo8eIaKZBZA2gsFO5nn9Dcj9dgeGctBZAmuY6OMDeF1Nh3EGddfuva1IITXm2CMHniPJklHXaTvdswRjFLekorS2HXydh3QxibwsL7DY3pKq6qZCbAMG6vc4IBk7vlIjWx6cvKlcl9cQMKYyitNXGSJUp1ZBkp9rsVGY0GRMudEpRb124zQxYbGUx5wZDZD"
+
+def send_message(user_id, text):
+    url = f"https://graph.facebook.com/v17.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+
+    payload = {
+        "recipient": {"id": user_id},
+        "message": {"text": text}
+    }
+
+    requests.post(url, json=payload)
+@app.get("/webhook")
+async def verify(request: Request):
+    VERIFY_TOKEN = "library_secret"
+
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return int(challenge)  # hoặc {"challenge": challenge}
+
+    return "Error"
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    data = await request.json()
+
+    if "entry" in data:
+        for entry in data["entry"]:
+            messaging = entry.get("messaging", [])
+            for msg in messaging:
+                sender = msg["sender"]["id"]
+
+                if "message" in msg and "text" in msg["message"]:
+                    user_text = msg["message"]["text"]
+
+                    # GỌI CHATBOT CỦA BẠN
+                    reply = process_message(user_text)
+
+                    # GỬI TRẢ LỜI ĐẾN FACEBOOK
+                    send_message(sender, reply)
+
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     print("🤖 Chatbot đã sẵn sàng! Gõ 'quit' để thoát.")
     conn = ensure_main_db()
