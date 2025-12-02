@@ -31,6 +31,7 @@ def ocr_from_image(image_path: str) -> Optional[str]:
         text = "\n".join(results).strip()
         if text:
             print(f"[OCR] Thành công – {len(text)} ký tự")
+            print("[OCR TEXT]:", text)   # 👈 THÊM DÒNG NÀY – in toàn bộ text
             return text
         else:
             print(f"[OCR] Không tìm thấy văn bản trong ảnh: {image_path}")

@@ -89,12 +89,12 @@ async def chat(message: str = Form(""), image: UploadFile = File(None)):
                 pass
 
     # 5) Trả về cho frontend (giữ cấu trúc đơn giản)
-    return {
-        "question": raw_text,
-        "ocr_text": ocr_text,
-        "combined": full_query,
-        "answer": answer,
-    }
+        # In thêm cho nhìn rõ trong terminal (tùy thích)
+    print("[CHAT] User text:", raw_text)
+    if ocr_text:
+        print("[CHAT] OCR từ ảnh:", ocr_text)
+
+        return {"answer": answer}
 
 # ---- Các route cũ: giữ nguyên y chang ----
 @app.get("/search")
