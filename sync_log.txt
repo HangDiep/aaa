@@ -174,3 +174,10 @@ Traceback (most recent call last):
     c.execute("""
 sqlite3.OperationalError: table majors has no column named notion_id
 [END   Sat 11/29/2025 16:01:32.54] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Tue 12/02/2025 16:48:28.40] 

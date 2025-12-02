@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thư Viện Trường - Giáng Sinh 2025</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #8B0000, #006400);
+            color: #fff;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Tuyết rơi nhẹ nhàng */
+        .snow { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .snow span {
+            position: absolute; color: #fff; font-size: 1.5rem; opacity: 0.8;
+            animation: fall linear infinite;
+        }
+        @keyframes fall { to { transform: translateY(100vh); } }
+        .snow span:nth-child(1) { left: 10%; animation-duration: 12s; font-size: 1.8rem; }
+        .snow span:nth-child(2) { left: 25%; animation-duration: 15s; }
+        .snow span:nth-child(3) { left: 40%; animation-duration: 10s; font-size: 2rem; }
+        .snow span:nth-child(4) { left: 60%; animation-duration: 18s; }
+        .snow span:nth-child(5) { left: 80%; animation-duration: 14s; font-size: 1.7rem; }
+
+        /* Header sạch đẹp */
+        header {
+            background: rgba(0,0,0,0.4);
+            padding: 20px 40px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            border-bottom: 3px solid #FFD700;
+        }
+        h1 {
+            font-family: 'Mountains of Christmas', cursive;
+            font-size: 3.8rem;
+            color: #FFD700;
+            text-shadow: 0 0 20px #fff, 0 0 40px #FF0000;
+        }
+        .subtitle {
+            font-size: 1.5rem;
+            margin-top: 10px;
+            color: #fff;
+            text-shadow: 0 0 10px #00ff00;
+        }
+
+        /* Menu ngang đỏ sang trọng */
+        nav {
+            background: #B22222;
+            padding: 15px 0;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin: 0 25px;
+            font-weight: bold;
+            padding: 10px 0;
+            border-bottom: 3px solid transparent;
+            transition: 0.3s;
+        }
+        nav a:hover, nav a.active {
+            color: #FFD700;
+            border-bottom: 3px solid #FFD700;
+        }
+
+        /* Banner tìm kiếm + kính lúp */
+        .banner {
+            max-width: 900px;
+            margin: 50px auto;
+            text-align: center;
+            padding: 40px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 2px solid #FFD700;
+        }
+        .search-box {
+            display: flex;
+            justify-content: center;
+            margin: 30px 0;
+            gap: 0;
+        }
+        input {
+            width: 70%;
+            padding: 18px 25px;
+            border: none;
+            border-radius: 50px 0 0 50px;
+            font-size: 1.2rem;
+            outline: none;
+        }
+        button {
+            padding: 18px 40px;
+            background: #FFD700;
+            color: #8B0000;
+            border: none;
+            border-radius: 0 50px 50px 0;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+        }
+        .adv { color: #FFD700; text-decoration: underline; margin-top: 15px; display: inline-block; }
+
+        /* Sách mới - sạch sẽ, dễ nhìn */
+        .books {
+            max-width: 1100px;
+            margin: 60px auto;
+            text-align: center;
+        }
+        .books h2 {
+            font-family: 'Mountains of Christmas', cursive;
+            font-size: 3rem;
+            color: #FFD700;
+            margin-bottom: 40px;
+            text-shadow: 0 0 20px #fff;
+        }
+        .book-list {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .book-item {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 15px;
+            width: 180px;
+            text-align: center;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            transition: 0.4s;
+        }
+        .book-item:hover {
+            transform: translateY(-15px);
+            box-shadow: 0 15px 30px rgba(255,215,0,0.6);
+        }
+        .book-item img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 3px solid #FFD700;
+        }
+
+        /* Footer */
+        footer {
+            background: #000;
+            padding: 30px;
+            text-align: center;
+            margin-top: 80px;
+            color: #FFD700;
+            font-size: 1.3rem;
+            border-top: 5px solid #FFD700;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2.8rem; }
+            nav a { margin: 0 10px; font-size: 0.9rem; }
+            input { width: 60%; }
+            button { padding: 18px 20px; }
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="snow">
+        <span>❅</span><span>❆</span><span>✻</span><span>❄</span><span>✨</span>
+    </div>
+
+    <header>
+        <h1>THƯ VIỆN TRƯỜNG</h1>
+        <div class="subtitle">Chúc mừng Giáng sinh & Năm mới 2026</div>
+    </header>
+
+    <nav>
+        <a href="#" class="active">TRANG CHỦ</a>
+        <a href="#">GIỚI THIỆU</a>
+        <a href="#">CSDL NỘI SINH</a>
+        <a href="#">THƯ VIỆN SỐ</a>
+        <a href="#">DỊCH VỤ</a>
+        <a href="#">HƯỚNG DẪN</a>
+    </nav>
+
+    <div class="banner">
+        <h2>Chào mừng đến với Thư viện trường</h2>
+        <p>Hãy tìm kiếm sách yêu thích của bạn ngay hôm nay!</p>
+        <div class="search-box">
+            <input type="text" placeholder="Tìm kiếm sách, tác giả, ISBN...">
+            <button>TÌM KIẾM</button>
+        </div>
+        <a href="#" class="adv">Tìm kiếm nâng cao</a>
+    </div>
+
+    <div class="books">
+        <h2>SÁCH MỚI</h2>
+        <div class="book-list">
+            <div class="book-item">
+                <img src="img/download (12).jpg" alt="Kỹ thuật lập trình C">
+            </div>
+            <div class="book-item">
+                <img src="img/sg-11134201-824io-me19iwby9z42fe.webp" alt="Triết học MacLeNin">
+            </div>
+            <div class="book-item">
+                <img src="img/van-1.jpg" alt="Chí phèo">
+            </div>
+            <div class="book-item">
+                <img src="img/vn-11134207-7ras8-m1jm4k4y151ba5.webp" alt="Một số chuyên đề toán tổ hợp">
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        © 2025 Thư Viện Trường THPT - Merry Christmas & Happy New Year
+    </footer>
+
+</body>
+</html>
