@@ -178,10 +178,11 @@ if (btnClear) {
   });
 }
 // =============================
-// Xử lý chọn ảnh + preview
+// Xử lý chọn ảnh + preview + gửi kèm tin nhắn
 // =============================
 if (pickImageBtn && imageInput) {
-  pickImageBtn.addEventListener("click", () => {
+  pickImageBtn.addEventListener("click", (e) => {
+    e.preventDefault();
     imageInput.click();
   });
 }
@@ -193,16 +194,117 @@ if (imageInput) {
       imagePreview.innerHTML = "";
       return;
     }
+
     const url = URL.createObjectURL(file);
     imagePreview.innerHTML = `
-      <div style="padding:8px 0; color:#22d3ee; font-size:13px">
-        Đã chọn: <strong>${escapeHtml(file.name)}</strong> (${(file.size/1024).toFixed(1)} KB)
-        <span style="margin-left:12px; color:#94a3b8; cursor:pointer; text-decoration:underline" onclick="this.parentElement.parentElement.innerHTML=''">
+      <div style="padding:8px 0; color:#22d3ee; font-size:13px; display:flex; align-items:center; justify-content:space-between;">
+        <div>
+          Đã chọn: <strong>${escapeHtml(file.name)}</strong> (${(file.size/1024).toFixed(1)} KB)
+        </div>
+        <span style="color:#94a3b8; cursor:pointer; text-decoration:underline;" 
+              onclick="document.getElementById('imageInput').value=''; document.getElementById('imagePreview').innerHTML='';">
           Hủy
         </span>
       </div>
-      <img src="${url}" style="max-width:100%; max-height:300px; border-radius:8px; border:1px solid #334155">
+      <img src="${url}" style="max-width:100%; max-height:300px; border-radius:8px; margin-top:8px; border:1px solid #334155;">
     `;
+
+    // Tự động focus vào ô nhập để người dùng gõ thêm caption nếu muốn
+    input && input.focus();
   });
+}
+
+// Cho phép gửi bằng Enter (không Shift) dù có ảnh hay không
+if (input) {
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+}
+
+// Hàm send – đã đúng, chỉ bổ sung hiển thị ảnh trong lịch sử chat
+async function send() {
+  if (sending) return;
+  const text = input?.value?.trim() || "";
+  const imageFile = imageInput?.files[0];
+
+  if (!text && !imageFile) return;
+
+  sending = true;
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Đang gửi...";
+  }
+
+  // Xóa input + preview ngay lập tức để tránh gửi 2 lần
+  if (input) input.value = "";
+  if (imageInput) imageInput.value = "";
+  if (imagePreview) imagePreview.innerHTML = "";
+
+  const now = new Date();
+  const userMessage = text || "[Đã gửi một ảnh]";
+
+  // Hiển thị tin nhắn người dùng (có ảnh nếu có)
+  let userHtml = msgTemplate("user", text || "📷 Đã gửi ảnh", formatTime(now));
+  if (imageFile) {
+    const imgUrl = URL.createObjectURL(imageFile);
+    userHtml = `
+      <article class="msg user">
+        <div class="avatar">Người dùng</div>
+        <div>
+          <div class="bubble">
+            ${text ? escapeHtml(text) + "<br/><br/>" : ""}
+            <img src="${imgUrl}" style="max-width:100%; border-radius:8px; margin-top:8px;">
+          </div>
+          <div class="meta">Bạn · ${formatTime(now)}</div>
+        </div>
+      </article>
+    `;
+  }
+
+  chat.insertAdjacentHTML("beforeend", userHtml);
+  chat.scrollTop = chat.scrollHeight;
+
+  // Lưu vào transcript (chỉ text + ghi chú ảnh)
+  transcript.push({
+    user_message: text || "[ảnh]",
+    bot_reply: "…",
+    time: formatTime(now)
+  });
+  persist();
+
+  let reply = "Xin lỗi, có lỗi xảy ra.";
+
+  try {
+    if (CHAT_API_URL) {
+      const fd = new FormData();
+      fd.append("message", text);
+      if (imageFile) fd.append("image", imageFile, imageFile.name);
+
+      const res = await fetch(CHAT_API_URL, { method: "POST", body: fd });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      const data = await safeParse(res);
+      reply = data?.answer || "Bot không phản hồi.";
+    } else {
+      reply = offlineMock(text);
+    }
+  } catch (err) {
+    reply = `Lỗi kết nối: ${err.message}`;
+  }
+
+  // Thêm phản hồi bot
+  chat.insertAdjacentHTML("beforeend", msgTemplate("bot", reply, formatTime(now)));
+  transcript[transcript.length - 1].bot_reply = reply;
+  persist();
+  chat.scrollTop = chat.scrollHeight;
+
+  sending = false;
+  if (sendBtn) {
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Gửi";
+  }
 }
 render();
