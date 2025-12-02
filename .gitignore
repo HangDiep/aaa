@@ -25,3 +25,4 @@ __pycache__/
 create_*_db.py
 
 faq.db
+venv/
