@@ -116,4 +116,72 @@
 [sync] DONE
 [END   Thu 11/13/2025 22:32:15.97] 
 [START Fri 11/14/2025 20:32:11.36] 
-^C
+^C[START Fri 11/14/2025 21:32:11.77] 
+^C[START Sun 11/16/2025 11:47:46.11] 
+[START Sun 11/16/2025 12:47:45.81] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 24 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Sun 11/16/2025 12:47:49.92] 
+[START Sun 11/16/2025 13:47:45.80] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 28 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Sun 11/16/2025 13:47:49.05] 
+[START Mon 11/17/2025  0:10:41.97] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 28 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/17/2025  0:10:46.09] 
+[START Mon 11/17/2025  1:10:42.40] 
+^C[START Mon 11/17/2025 21:43:31.67] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 91 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Mon 11/17/2025 21:43:35.67] 
+[START Tue 11/18/2025 21:19:56.58] 
+^C[START Tue 11/18/2025 22:19:57.12] 
+^C[START Wed 11/19/2025 20:32:11.80] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 23 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Wed 11/19/2025 20:32:15.15] 
+[START Wed 11/19/2025 21:42:36.59] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 23 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Wed 11/19/2025 21:42:41.12] 
+[START Wed 11/19/2025 22:32:12.36] 
+^C[START Thu 11/20/2025 20:32:11.31] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 35 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/20/2025 20:32:15.67] 
+[START Thu 11/20/2025 21:32:11.78] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 35 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Thu 11/20/2025 21:32:15.67] 
+[START Thu 11/20/2025 22:32:11.88] 
+^C[START Fri 11/21/2025 20:32:11.20] 
+^C[START Fri 11/21/2025 21:32:11.63] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 38 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Fri 11/21/2025 21:32:16.20] 
+[START Sun 11/23/2025  8:26:20.34] 
+^C[START Sun 11/23/2025  8:27:47.30] 
+[sync] MAJORS: 37 rows
+[sync] FAQ: 16 rows
+[sync] BOOKS: syncing...
+[sync] DONE
+[END   Sun 11/23/2025  8:27:51.61] 
