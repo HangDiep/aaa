@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # Config & ENV
 # --------------------------
 BASE_DIR = os.path.dirname(__file__)
-ENV_PATH = r"D:\HTML\a\rag\.env"
+ENV_PATH = r"C:\Users\HOME\Desktop\aaa\rag\.env"
 if os.path.exists(ENV_PATH):
     load_dotenv(ENV_PATH, override=True)
 else:

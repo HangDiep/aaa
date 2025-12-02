@@ -116,4 +116,61 @@
 [sync] DONE
 [END   Thu 11/13/2025 22:32:15.97] 
 [START Fri 11/14/2025 20:32:11.36] 
-^C
+^CThe system cannot find the path specified.
+[END   Mon 11/17/2025 15:55:27.36] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Mon 11/17/2025 15:57:37.86] 
+^CTraceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Thu 11/20/2025 17:00:54.16] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Fri 11/21/2025 16:47:32.83] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Sat 11/22/2025 21:03:37.73] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Mon 11/24/2025 15:35:12.23] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Wed 11/26/2025 11:21:30.95] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Fri 11/28/2025 20:39:54.34] 
+Traceback (most recent call last):
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 395, in <module>
+    sync_majors()
+  File "C:\Users\HOME\Desktop\aaa\sync_faq.py", line 276, in sync_majors
+    c.execute("""
+sqlite3.OperationalError: table majors has no column named notion_id
+[END   Sat 11/29/2025 16:01:32.54] 

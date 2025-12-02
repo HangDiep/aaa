@@ -6,7 +6,7 @@ import logging
 import os
 from dotenv import load_dotenv
 # --- Cấu hình ---
-load_dotenv(r"D:\HTML\a\rag\.env")
+load_dotenv(r"C:\Users\HOME\Desktop\aaa\rag\.env")
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID_FAQ") 
 DB_PATH = "faq.db"
