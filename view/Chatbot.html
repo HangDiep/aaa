@@ -49,57 +49,53 @@
 <body>
   <div class="app">
     <header>
-      <h1 style="color:red">TEST</h1>
-  <div class="app">
       <div class="dot" aria-hidden="true"></div>
       <div>
         <h1>Library Chatbox</h1>
         <div class="sub">VI Assistant · flow-aware · SQLite friendly</div>
       </div>
       <div class="toolbar">
-        <button id="btnExport" class="btn" title="Xuất lịch sử dưới dạng JSON">Xuất lịch sử</button>
-        <button id="btnClear" class="btn btn-danger" title="Xóa phiên hiện tại">Xóa phiên</button>
+        <button id="btnExport" class="btn">Xuất lịch sử</button>
+        <button id="btnClear" class="btn btn-danger">Xóa phiên</button>
       </div>
     </header>
 
-    <main id="chat" class="chat" aria-live="polite" aria-label="Khu vực hội thoại">
+    <main id="chat" class="chat" aria-live="polite">
       <div id="emptyState" class="empty">
-        <p>Chào bạn! Hãy bắt đầu trao đổi bằng cách nhập nội dung bên dưới.<br/>
-        Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · <span class="kbd">Shift</span>+<span class="kbd">Enter</span> để xuống dòng.</p>
+        <p>Chào bạn! Hãy bắt đầu trao đổi...<br/>
+        Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · Shift+Enter để xuống dòng.</p>
       </div>
     </main>
 
+    <!-- SỬA LẠI TOÀN BỘ PHẦN COMPOSER -->
     <section class="composer">
-      <div style="flex:1">
-        <textarea id="input" placeholder="Gõ câu hỏi… (ví dụ: Thư viện mở cửa khi nào?)" spellcheck="true"></textarea>
-        <!-- THÊM VÀO: nút chọn ảnh -->
-      <div style="margin-top:8px; display:flex; align-items:center; gap:10px">
-        <input type="file" id="imageInput" accept="image/*" style="display:none" />
-        <button class="btn" id="pickImage">📷 Chọn ảnh</button>
-      </div>
+      <textarea id="input" placeholder="Gõ câu hỏi… hoặc gửi kèm ảnh" rows="1"></textarea>
 
-      <!-- THÊM VÀO: vùng preview ảnh -->
-      <div id="imagePreview" style="margin-top:10px"></div>
+      <!-- Input file ẩn + nút chọn ảnh -->
+      <input type="file" id="imageInput" accept="image/*" style="display:none" />
+      <button type="button" id="pickImage" class="btn" title="Gửi kèm ảnh">Chọn ảnh</button>
 
-      <div class="quick"> … </div>
-    </div>
-        <div class="quick" aria-label="Hành động nhanh">
-          <span class="chip" data-fill="hủy">Hủy luồng</span>
-          <span class="chip" data-fill="thoát">Thoát</span>
-          <span class="chip" data-fill="đổi chủ đề">Đổi chủ đề</span>
-          <span class="chip" data-fill="giờ mở cửa">Giờ mở cửa</span>
-        </div>
-      </div>
+      <!-- Preview ảnh đã chọn -->
+      <div id="imagePreview"></div>
+
+      <!-- Nút gửi chính -->
       <button id="send" class="send">Gửi</button>
     </section>
 
+    <!-- Quick chips (có thể để riêng nếu muốn) -->
+    <div class="quick" style="padding: 8px 20px; gap: 8px; display: flex; flex-wrap: wrap;">
+      <span class="chip" data-fill="hủy">Hủy luồng</span>
+      <span class="chip" data-fill="giờ mở cửa">Giờ mở cửa</span>
+      <span class="chip" data-fill="mượn sách cần gì?">Mượn sách</span>
+    </div>
+
     <div class="footer">
-      <div class="status"><span class="blink" aria-hidden="true"></span> Sẵn sàng — API: <span id="apiStatus">offline</span></div>
+      <div class="status">
+        <span class="blink"></span> Sẵn sàng — API: <span id="apiStatus">offline</span>
+      </div>
     </div>
   </div>
 
   <script src="/static/app.js"></script>
-
-
 </body>
 </html>

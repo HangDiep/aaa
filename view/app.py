@@ -5,6 +5,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
+from fastapi.responses import HTMLResponse
+from chat_fixed import process_message
+
 import os
 import uuid
 
