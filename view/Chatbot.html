@@ -72,6 +72,17 @@
     <section class="composer">
       <div style="flex:1">
         <textarea id="input" placeholder="Gõ câu hỏi… (ví dụ: Thư viện mở cửa khi nào?)" spellcheck="true"></textarea>
+        <!-- THÊM VÀO: nút chọn ảnh -->
+      <div style="margin-top:8px; display:flex; align-items:center; gap:10px">
+        <input type="file" id="imageInput" accept="image/*" style="display:none" />
+        <button class="btn" id="pickImage">📷 Chọn ảnh</button>
+      </div>
+
+      <!-- THÊM VÀO: vùng preview ảnh -->
+      <div id="imagePreview" style="margin-top:10px"></div>
+
+      <div class="quick"> … </div>
+    </div>
         <div class="quick" aria-label="Hành động nhanh">
           <span class="chip" data-fill="hủy">Hủy luồng</span>
           <span class="chip" data-fill="thoát">Thoát</span>

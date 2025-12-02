@@ -1,42 +1,67 @@
 # view/app.py
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 import os
+import uuid
 app = FastAPI()
-# Mount static folder
+
+# Mount static
 app.mount("/static", StaticFiles(directory="view"), name="static")
 
-
-# Cho Python thấy thư mục cha: D:\HTML\1234 (nơi có chat_fixed.py)
+# Thêm đường dẫn project để import được chat_fixed.py
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-from chat_fixed import process_message  # chat_fixed.py KHÔNG được import chính nó
-
-app = FastAPI(title="Library Chat API")
+# Bây giờ mới import, vì process_message đã được cập nhật nhận image_path
+from chat_fixed import process_message
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ===== API =====
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+# Route mới – nhận cả text và ảnh
 @app.post("/chat")
-def chat(message: str = Form(...)):
-    return {"answer": process_message(message)}  # front-end đọc data.answer
+async def chat(message: str = Form(""), image: UploadFile = File(None)):
+    image_path = None
+    if image and image.filename:
+        # Đổi tên thành UUID + đuôi gốc → 100% không lỗi Unicode
+        suffix = Path(image.filename).suffix.lower()  # .jpg, .png, ...
+        safe_filename = f"{uuid.uuid4()}{suffix}"
+        os.makedirs("temp", exist_ok=True)
+        image_path = Path("temp") / safe_filename
+        
+        content = await image.read()
+        with open(image_path, "wb") as f:
+            f.write(content)
+        
+        print(f"[UPLOAD] Đã lưu ảnh → {image_path}")
 
-# Stub demo (có/không tùy bạn)
+    try:
+        answer = process_message(message.strip(), image_path=str(image_path) if image_path else None)
+    finally:
+        # Luôn xóa file tạm sau khi dùng xong (tránh đầy ổ)
+        if image_path and image_path.exists():
+            try:
+                image_path.unlink()
+                print(f"[CLEANUP] Đã xóa {image_path}")
+            except:
+                pass
+
+    return {"answer": answer}
+
+# Các route cũ
 @app.get("/search")
 def search(q: str):
     return [{"answer": "Giờ mở cửa: 7:30 - 17:00, Thứ 2–Thứ 6."}]
@@ -45,22 +70,15 @@ def search(q: str):
 def inventory(book_name: str):
     return [{"name": book_name, "author": "N/A", "year": "?", "quantity": 3, "status": "available"}]
 
-# ===== STATIC =====
-STATIC_DIR = Path(__file__).resolve().parent   # chính là thư mục view
-
-# Serve các file tĩnh (nếu bạn có JS/CSS riêng). Không bắt route gốc.
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# 👉 Trả trực tiếp file Chatbot.html ở route "/"
+# Serve HTML
+STATIC_DIR = Path(__file__).resolve().parent
 @app.get("/", response_class=HTMLResponse)
 def home():
     file_path = STATIC_DIR / "Chatbot.html"
     if not file_path.exists():
-        return "<h1>❌ Không tìm thấy Chatbot.html</h1>"
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
-    
+        return "<h1>Không tìm thấy Chatbot.html</h1>"
+    return file_path.read_text(encoding="utf-8")
+
 @app.get("/ping")
 def ping():
     return {"msg": "pong"}
-
