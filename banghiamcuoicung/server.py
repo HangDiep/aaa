@@ -61,20 +61,26 @@ async def websocket_endpoint(websocket: WebSocket):
                     if text:
                         print("🎤 Câu nói:", text)
 
-                        # === GỌI CHATBOT THƯ VIỆN ===
                         try:
                             answer = process_message(text)
                         except Exception as e:
                             print("Lỗi chatbot:", e)
                             answer = "Hiện tại chatbot gặp lỗi."
 
-                        # gửi về client dạng JSON
                         import json
-                        payload = {
-                            "question": text,
-                            "answer": answer
-                        }
-                        await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+
+                        # Gửi tin nhắn của user
+                        await websocket.send_text(json.dumps({
+                            "sender": "user",
+                            "text": text
+                        }, ensure_ascii=False))
+
+                        # Gửi tin nhắn của bot
+                        await websocket.send_text(json.dumps({
+                            "sender": "bot",
+                            "text": answer
+                        }, ensure_ascii=False))
+
 
                     buffer = b""
 
@@ -88,3 +94,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # chạy:
 # uvicorn server:app --reload
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "server:app",
+        host="127.0.0.1",
+        port=9000,
+        reload=True
+    )

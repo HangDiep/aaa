@@ -9,7 +9,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const status = document.getElementById("status");
 
     if (!chatbox || !startBtn || !stopBtn || !status) {
-        console.error("❌ Thiếu phần tử HTML (chatbox/startBtn/stopBtn/status). Kiểm tra lại id trong index.html!");
+        console.error("❌ Thiếu phần tử HTML! Kiểm tra lại index.html");
         return;
     }
 
@@ -21,7 +21,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // ===== KẾT NỐI WEBSOCKET =====
     function connectWebSocket() {
         console.log("🔌 Đang kết nối WebSocket...");
-        ws = new WebSocket("ws://localhost:8000/ws");
+        ws = new WebSocket("ws://localhost:9000/ws");
 
         ws.onopen = () => {
             console.log("✅ WebSocket connected");
@@ -42,15 +42,27 @@ window.addEventListener("DOMContentLoaded", () => {
         };
 
         ws.onmessage = (event) => {
-            const text = (event.data || "").trim();
-            console.log("💬 Server:", text);
-            if (!text) return;
+            try {
+                const data = JSON.parse(event.data);
+                console.log("📩 Nhận message:", data);
 
-            const msg = document.createElement("div");
-            msg.className = "message";
-            msg.innerHTML = `<strong>Bot:</strong> ${text}`;
-            chatbox.appendChild(msg);
-            chatbox.scrollTop = chatbox.scrollHeight;
+                const msg = document.createElement("div");
+                msg.className = "message";
+
+                if (data.sender === "user") {
+                    msg.innerHTML = `<strong>Tôi:</strong> ${data.text}`;
+                } else if (data.sender === "bot") {
+                    msg.innerHTML = `<strong>Bot:</strong> ${data.text}`;
+                } else {
+                    msg.innerHTML = `<strong>?</strong> ${event.data}`;
+                }
+
+                chatbox.appendChild(msg);
+                chatbox.scrollTop = chatbox.scrollHeight;
+
+            } catch (err) {
+                console.error("❌ Lỗi parse JSON:", err, event.data);
+            }
         };
     }
 
@@ -64,7 +76,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            alert("Trình duyệt không hỗ trợ thu âm (getUserMedia).");
+            alert("Trình duyệt không hỗ trợ thu âm.");
             return;
         }
 
@@ -72,7 +84,7 @@ window.addEventListener("DOMContentLoaded", () => {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
-            audioBuffer = []; // reset buffer
+            audioBuffer = [];
 
             mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0) {
@@ -90,30 +102,29 @@ window.addEventListener("DOMContentLoaded", () => {
                     const base64data = result.split(",")[1];
 
                     if (!base64data) {
-                        console.error("❌ Không đọc được base64 từ audio.");
-                        status.textContent = "Lỗi đọc dữ liệu âm thanh.";
+                        console.error("❌ Không đọc được base64.");
+                        status.textContent = "Lỗi đọc âm thanh.";
                         status.style.color = "#f87171";
                         return;
                     }
 
                     if (!ws || ws.readyState !== WebSocket.OPEN) {
-                        console.error("❌ WebSocket chưa mở, không gửi được audio.");
+                        console.error("❌ WebSocket chưa mở.");
                         status.textContent = "WebSocket chưa sẵn sàng.";
                         status.style.color = "#f87171";
                         return;
                     }
 
                     ws.send(base64data);
-                    console.log("📤 Đã gửi audio base64 lên server.");
+                    console.log("📤 Đã gửi audio lên server");
                     status.textContent = "Đã gửi – đang xử lý...";
                     status.style.color = "#3b82f6";
                 };
 
                 reader.readAsDataURL(blob);
 
-                // Dừng stream
                 if (stream) {
-                    stream.getTracks().forEach((track) => track.stop());
+                    stream.getTracks().forEach((t) => t.stop());
                 }
                 stream = null;
                 mediaRecorder = null;
@@ -126,6 +137,7 @@ window.addEventListener("DOMContentLoaded", () => {
             startBtn.textContent = "Đang thu...";
             status.textContent = "Đang thu – Nói đi!";
             status.style.color = "#60a5fa";
+
         } catch (err) {
             console.error("❌ Lỗi micro:", err);
             alert("Micro lỗi: " + err.message);
@@ -135,29 +147,20 @@ window.addEventListener("DOMContentLoaded", () => {
     // ===== DỪNG THU ÂM =====
     stopBtn.onclick = () => {
         if (mediaRecorder && mediaRecorder.state === "recording") {
-            console.log("🛑 Yêu cầu dừng thu...");
             mediaRecorder.stop();
-        } else {
-            console.log("⚠️ Không có thu âm đang diễn ra.");
         }
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
         startBtn.textContent = "Bắt đầu";
-        status.textContent = "Đã dừng – đang xử lý (nếu có dữ liệu)...";
+        status.textContent = "Đã dừng – đang xử lý...";
         status.style.color = "#3b82f6";
     };
 
-    // Dọn dẹp khi đóng tab
+    // Dọn dẹp
     window.addEventListener("beforeunload", () => {
-        if (mediaRecorder && mediaRecorder.state === "recording") {
-            mediaRecorder.stop();
-        }
-        if (stream) {
-            stream.getTracks().forEach((t) => t.stop());
-        }
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.close();
-        }
+        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        if (ws && ws.readyState === WebSocket.OPEN) ws.close();
     });
 });
