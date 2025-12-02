@@ -2,21 +2,48 @@
 #  CHATBOT 4-BƯỚC – HIỂU NGHĨA, KHÔNG BỊA
 #  Router (LLM + Embedding) → Rewrite (LLM)
 #  → Search (Embedding + LLM Rerank) → Strict Answer (LLM)
-#  Model LLM:  qwen2.5:3b  (ollama)
+#  Model LLM:  Gemini 2.5 Flash (Google GenAI)
 #  Model Emb:  BAAI/bge-m3
 # ============================================
 
 import os
 import re
 import sqlite3
-import requests
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+# ==== NEW: Gemini SDK + dotenv ====
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
 FAQ_DB_PATH = r"D:\HTML\a - Copy\faq.db"
-OLLAMA_URL = "http://127.0.0.1:11434"
-MODEL = "qwen2.5:3b"
-TIMEOUT = 20
+
+# ==== NEW: cấu hình Gemini ====
+GEMINI_MODEL = "gemini-2.5-flash"
+
+# Load .env (ưu tiên file trong thư mục rag như chat_fixed.py)
+ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+try:
+    if os.path.exists(ENV_PATH):
+        load_dotenv(ENV_PATH, override=True)
+    else:
+        load_dotenv()
+except Exception:
+    pass
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+gemini_client = None
+if not GEMINI_API_KEY:
+    print("⚠ Không tìm thấy GEMINI_API_KEY trong .env – LLM sẽ trả rỗng.")
+else:
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        print("✅ Đã khởi tạo Gemini client.")
+    except Exception as e:
+        print(f"⚠ Lỗi khởi tạo Gemini client: {e}")
+        gemini_client = None
 
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
@@ -41,25 +68,30 @@ def normalize(x: str) -> str:
 
 
 # ============================================
-#  OLLAMA LLM CALL
+#  LLM CALL – DÙNG GEMINI THAY OLLAMA
 # ============================================
 def llm(prompt: str, temp: float = 0.15, n: int = 128) -> str:
+    """
+    Gọi Gemini 2.5 Flash để sinh câu trả lời ngắn.
+    temp: độ "ngẫu nhiên"
+    n: max_output_tokens (số token tối đa cần sinh)
+    """
+    if gemini_client is None:
+        return ""
+
     try:
-        r = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": temp, "num_predict": n},
+        resp = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config={
+                "temperature": float(temp),
+                "max_output_tokens": int(n),
             },
-            timeout=TIMEOUT,
         )
-        if r.status_code == 200:
-            return r.json().get("response", "").strip()
-    except Exception:
-        pass
-    return ""
+        return (resp.text or "").strip()
+    except Exception as e:
+        print(f"⚠ Lỗi gọi Gemini: {e}")
+        return ""
 
 
 # ============================================
@@ -213,13 +245,10 @@ Câu hỏi: "{question}"
 
 Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
 """
-    # Temp thấp để nó không sáng tạo
     out = llm(prompt, temp=0.05, n=10).upper().strip()
-    
-    # Xử lý output (bỏ dấu chấm, khoảng trắng thừa)
-    import re
-    clean_out = re.sub(r'[^A-Z]', '', out) 
-    
+
+    clean_out = re.sub(r'[^A-Z]', '', out)
+
     print(f"[ROUTER LLM] Output: '{out}' -> Clean: '{clean_out}'")
 
     if clean_out in ["FAQ", "BOOKS", "MAJORS"]:
@@ -456,7 +485,6 @@ def process_message(text: str) -> str:
     # B2: Rewrite
     rewritten = rewrite_question(text)
     q_vec = embed_model.encode(normalize(rewritten), normalize_embeddings=True)
-
 
     if route == "GREETING":
         return "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
