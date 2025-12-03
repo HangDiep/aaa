@@ -136,7 +136,6 @@ def _ensure_tables():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True) if os.path.dirname(DB_PATH) else None
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-
     # Tạo bảng
     c.execute("""
         CREATE TABLE IF NOT EXISTS faq(
@@ -190,7 +189,7 @@ def sync_faq():
 
     rows = _query(DB_FAQ, {
         "filter": {"and":[
-            {"property":"Question","rich_text":{"is_not_empty":True}},
+            #{"property":"Question","rich_text":{"is_not_empty":True}},
             {"property":"Answer","rich_text":{"is_not_empty":True}},
             {"property":"Approved","checkbox":{"equals":True}}
         ]},

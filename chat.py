@@ -16,14 +16,6 @@ from sentence_transformers import SentenceTransformer
 import requests
 import json
 from dotenv import load_dotenv
-
-FAQ_DB_PATH = r"D:\HTML\a - Copy\faq.db"
-
-# ==== NEW: cấu hình Groq ====
-GROQ_MODEL = "llama-3.3-70b-versatile"
-# GROQ_MODEL_SMART = "llama-3.3-70b-versatile"
-GROQ_API_KEY = "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"
-
 # Load .env (nếu có thêm key khác)
 ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
 try:
@@ -33,7 +25,9 @@ try:
         load_dotenv()
 except Exception:
     pass
-
+FAQ_DB_PATH = os.getenv("FAQ_DB_PATH")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 if not GROQ_API_KEY:
     print("⚠ Chưa có GROQ_API_KEY.")
 else:
@@ -138,7 +132,6 @@ if not os.path.exists(FAQ_DB_PATH):
 else:
     conn = sqlite3.connect(FAQ_DB_PATH)
     cur = conn.cursor()
-
     # FAQ
     cur.execute(
         "SELECT question, answer, category FROM faq WHERE approved = 1 OR approved IS NULL"
