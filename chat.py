@@ -11,18 +11,24 @@ import re
 import sqlite3
 import numpy as np
 from sentence_transformers import SentenceTransformer
+import threading
+import queue
 
-# ==== NEW: Gemini SDK + dotenv ====
-from google import genai
-from google.genai import types
+# ==== NEW: Groq API (via requests) ====
+import requests
+import json
 from dotenv import load_dotenv
 
 FAQ_DB_PATH = r"D:\HTML\a - Copy\faq.db"
 
-# ==== NEW: cấu hình Gemini ====
-GEMINI_MODEL = "gemini-2.5-flash"
+# ==== NEW: cấu hình Groq ====
+GROQ_MODEL = "llama-3.1-8b-instant"
+# "llama-3.3-70b-versatile"
+GROQ_API_KEY = "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"
+# GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Load .env (ưu tiên file trong thư mục rag như chat_fixed.py)
+
+# Load .env (nếu có thêm key khác)
 ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
 try:
     if os.path.exists(ENV_PATH):
@@ -32,18 +38,10 @@ try:
 except Exception:
     pass
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-gemini_client = None
-if not GEMINI_API_KEY:
-    print("⚠ Không tìm thấy GEMINI_API_KEY trong .env – LLM sẽ trả rỗng.")
+if not GROQ_API_KEY:
+    print("⚠ Chưa có GROQ_API_KEY.")
 else:
-    try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-        print("✅ Đã khởi tạo Gemini client.")
-    except Exception as e:
-        print(f"⚠ Lỗi khởi tạo Gemini client: {e}")
-        gemini_client = None
+    print(f"✅ Đã cấu hình Groq ({GROQ_MODEL}).")
 
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
@@ -70,28 +68,61 @@ def normalize(x: str) -> str:
 # ============================================
 #  LLM CALL – DÙNG GEMINI THAY OLLAMA
 # ============================================
-def llm(prompt: str, temp: float = 0.15, n: int = 128) -> str:
+import time
+import random
+
+def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
     """
-    Gọi Gemini 2.5 Flash để sinh câu trả lời ngắn.
-    temp: độ "ngẫu nhiên"
-    n: max_output_tokens (số token tối đa cần sinh)
+    Gọi Groq API trực tiếp với cơ chế RETRY ĐƠN GIẢN (Linear Backoff).
+    Không dùng Queue để tránh chờ lâu.
     """
-    if gemini_client is None:
+    if not GROQ_API_KEY:
         return ""
 
-    try:
-        resp = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={
-                "temperature": float(temp),
-                "max_output_tokens": int(n),
-            },
-        )
-        return (resp.text or "").strip()
-    except Exception as e:
-        print(f"⚠ Lỗi gọi Gemini: {e}")
-        return ""
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temp,
+        "max_tokens": n,
+    }
+
+    max_retries = 3
+    fixed_delay = 2.0  # Chờ cố định 2 giây nếu lỗi
+
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+            
+            if resp.status_code == 429:
+                print(f"⚠ Groq quá tải (429). Đang chờ {fixed_delay}s để thử lại ({attempt+1}/{max_retries})...")
+                time.sleep(fixed_delay)
+                continue
+                
+            print(f"⚠ Lỗi Groq {resp.status_code}: {resp.text}")
+            return ""
+
+        except Exception as e:
+            print(f"⚠ Lỗi gọi Groq: {e}")
+            return ""
+    
+    print("❌ Đã thử lại 3 lần nhưng Groq vẫn bận.")
+    return ""
 
 
 # ============================================
@@ -436,19 +467,15 @@ THÔNG TIN (KNOWLEDGE):
 
 CÂU HỎI (QUESTION): "{question}"
 
-QUY TẮC BẮT BUỘC:
-1. TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT.
-2. Nếu thông tin có vẻ liên quan (dù chỉ một phần), HÃY TRẢ LỜI NGAY.
-3. Ví dụ: Hỏi "sách công nghệ" mà có "Công nghệ phần mềm" -> TRẢ LỜI thông tin sách đó.
-4. Nếu thông tin là danh sách, hãy trích xuất ý chính.
-5. ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN.
-6. Nếu câu hỏi dùng từ đồng nghĩa, hãy tự suy luận.
-7. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
-8. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan.
+QUY TẮC:
+1. Trả lời ngắn gọn, đúng trọng tâm bằng Tiếng Việt.
+2. Dùng thông tin trong phần KNOWLEDGE để trả lời.
+3. Nếu thông tin có chứa số liệu, địa điểm, quy trình -> Hãy trích xuất ra để trả lời.
+4. Nếu thông tin không khớp hoàn toàn nhưng có liên quan -> Hãy trả lời dựa trên những gì có thể.
 
 Nếu thông tin HOÀN TOÀN KHÔNG LIÊN QUAN thì mới nói: "{FALLBACK_MSG}"
 
-Câu trả lời của bạn (Tiếng Việt):
+Câu trả lời của bạn:
 """
     out = llm(prompt, temp=0.05, n=256)
     print(f"[DEBUG STRICT OUT] {out}")
@@ -516,7 +543,7 @@ def process_message(text: str) -> str:
         return strict_answer(rewritten, best_cand['answer'])
 
     # Mặc định: FAQ
-    filter_cat = None  # hiện tại chưa lọc theo category nhỏ
+    filter_cat = None
     print(f"\n[DEBUG] Filter Category: {filter_cat}")
 
     candidates = search_faq_candidates(q_vec, top_k=20, filter_category=None)

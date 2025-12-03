@@ -4,6 +4,9 @@ import sqlite3
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
+import threading
+import queue
+
 
 # --------------------------
 # Config & ENV
