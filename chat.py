@@ -28,10 +28,10 @@ except Exception:
 FAQ_DB_PATH = os.getenv("FAQ_DB_PATH")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-if not GROQ_API_KEY:
-    print("⚠ Chưa có GROQ_API_KEY.")
-else:
-    print(f"✅ Đã cấu hình Groq ({GROQ_MODEL}).")
+# if not GROQ_API_KEY:
+#     print("⚠ Chưa có GROQ_API_KEY.")
+# else:
+#     print(f"✅ Đã cấu hình Groq ({GROQ_MODEL}).")
 
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
