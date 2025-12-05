@@ -117,74 +117,28 @@ def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
 
 
 # ============================================
-#  LOAD & EMBED DB
+#  CONNECT TO QDRANT
 # ============================================
-print("Đang tải dữ liệu từ faq.db...")
+from qdrant_client import QdrantClient
 
-if not os.path.exists(FAQ_DB_PATH):
-    print(f"❌ Không tìm thấy file {FAQ_DB_PATH}. Hãy chạy sync_all.py / sync_faq.py trước!")
-    # Tạo dummy để không crash
-    FAQ_TEXTS, BOOK_TEXTS, MAJOR_TEXTS = [], [], []
-    FAQ_EMB = np.zeros((0, 768))
-    BOOK_EMB = np.zeros((0, 768))
-    MAJOR_EMB = np.zeros((0, 768))
-    faq_rows, book_rows, major_rows = [], [], []
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
+print("🔗 Kết nối tới Qdrant...")
+if QDRANT_API_KEY:
+    qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 else:
-    conn = sqlite3.connect(FAQ_DB_PATH)
-    cur = conn.cursor()
-    # FAQ
-    cur.execute(
-        "SELECT question, answer, category FROM faq WHERE approved = 1 OR approved IS NULL"
-    )
-    faq_rows = cur.fetchall()
+    qdrant_client = QdrantClient(url=QDRANT_URL)
 
-    FAQ_TEXTS = []
-    for q, a, cat in faq_rows:
-        # Nhúng Category + Answer để tạo chunk kiến thức rõ nghĩa
-        content = f"{cat or ''}: {a or ''}"
-        FAQ_TEXTS.append(normalize(content))
-
-    # BOOKS
-    cur.execute(
-        """
-        SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
-        FROM books b LEFT JOIN majors m ON b.major_id = m.major_id
-        """
-    )
-    book_rows = cur.fetchall()
-    BOOK_TEXTS = [
-        normalize(f"sách {n}. tác giả {a}. ngành {m or ''}")
-        for n, a, _, _, _, m in book_rows
-    ]
-
-    # MAJORS
-    cur.execute("SELECT name, major_id, description FROM majors")
-    major_rows = cur.fetchall()
-    MAJOR_TEXTS = [
-        normalize(f"ngành {n}. mã {mid}. {desc or ''}")
-        for n, mid, desc in major_rows
-    ]
-
-    conn.close()
-
-    print("Đang tạo embedding (lần đầu sẽ hơi lâu)...")
-    FAQ_EMB = (
-        embed_model.encode(FAQ_TEXTS, normalize_embeddings=True)
-        if FAQ_TEXTS
-        else np.zeros((0, 768))
-    )
-    BOOK_EMB = (
-        embed_model.encode(BOOK_TEXTS, normalize_embeddings=True)
-        if BOOK_TEXTS
-        else np.zeros((0, 768))
-    )
-    MAJOR_EMB = (
-        embed_model.encode(MAJOR_TEXTS, normalize_embeddings=True)
-        if MAJOR_TEXTS
-        else np.zeros((0, 768))
-    )
-
-    print(f"✅ Đã tải: FAQ={len(faq_rows)} | BOOKS={len(book_rows)} | MAJORS={len(major_rows)}")
+# Kiểm tra collections
+try:
+    collections = qdrant_client.get_collections().collections
+    collection_names = [c.name for c in collections]
+    print(f"✅ Đã kết nối Qdrant: {len(collections)} collections ({', '.join(collection_names)})")
+except Exception as e:
+    print(f"❌ Lỗi kết nối Qdrant: {e}")
+    print("Hãy chạy: python push_to_qdrant.py")
+    exit(1)
 
 
 # ============================================
@@ -193,24 +147,26 @@ else:
 def auto_route_by_embedding(q_vec: np.ndarray) -> str:
     """
     Nếu LLM phân loại linh tinh → dùng embedding chọn bảng nào gần nhất
-    dựa trên dữ liệu thật trong FAQ/BOOKS/MAJORS.
+    dựa trên dữ liệu thật trong FAQ/BOOKS/MAJORS (query Qdrant).
     """
     best_type = "FAQ"
     best_score = -1.0
 
-    if len(FAQ_EMB) > 0:
-        s = float(np.max(np.dot(FAQ_EMB, q_vec)))
-        best_type, best_score = "FAQ", s
+    try:
+        # Query each collection and get top 1 score
+        faq_results = qdrant_client.query_points("faq", query=q_vec.tolist(), limit=1).points
+        if faq_results:
+            best_type, best_score = "FAQ", faq_results[0].score
 
-    if len(BOOK_EMB) > 0:
-        s = float(np.max(np.dot(BOOK_EMB, q_vec)))
-        if s > best_score:
-            best_type, best_score = "BOOKS", s
+        book_results = qdrant_client.query_points("books", query=q_vec.tolist(), limit=1).points
+        if book_results and book_results[0].score > best_score:
+            best_type, best_score = "BOOKS", book_results[0].score
 
-    if len(MAJOR_EMB) > 0:
-        s = float(np.max(np.dot(MAJOR_EMB, q_vec)))
-        if s > best_score:
-            best_type, best_score = "MAJORS", s
+        major_results = qdrant_client.query_points("majors", query=q_vec.tolist(), limit=1).points
+        if major_results and major_results[0].score > best_score:
+            best_type, best_score = "MAJORS", major_results[0].score
+    except Exception as e:
+        print(f"⚠ Lỗi auto_route_by_embedding: {e}")
 
     return best_type
 
@@ -314,88 +270,93 @@ Câu viết lại (chỉ viết 1 câu duy nhất):
 # 3A) SEMANTIC SEARCH CHO FAQ
 # ============================================
 def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None):
-    if len(FAQ_EMB) == 0:
-        return []
-
-    sims = np.dot(FAQ_EMB, q_vec)
-    idx = np.argsort(-sims)[:top_k]
-
-    candidates = []
-    for i in idx:
-        score = float(sims[i])
-        if score < 0.08:
-            continue
-
-        q, a, cat = faq_rows[i]
-
-        if filter_category and filter_category not in ["FAQ", "BOOKS", "MAJORS", "GREETING"]:
-            if cat != filter_category:
-                continue
-
-        candidates.append(
-            {
+    """Query Qdrant FAQ collection"""
+    try:
+        results = qdrant_client.query_points(
+            collection_name="faq",
+            query=q_vec.tolist(),
+            limit=top_k,
+            score_threshold=0.08
+        ).points
+        
+        candidates = []
+        for hit in results:
+            payload = hit.payload
+            score = hit.score
+            
+            # Filter by category if needed
+            if filter_category and filter_category not in ["FAQ", "BOOKS", "MAJORS", "GREETING"]:
+                if payload.get("category") != filter_category:
+                    continue
+            
+            candidates.append({
                 "score": score,
-                "question": q or "",
-                "answer": a or "",
-                "category": cat or "",
-                "id": i,
-            }
-        )
-    return candidates
+                "question": payload.get("question", ""),
+                "answer": payload.get("answer", ""),
+                "category": payload.get("category", ""),
+                "id": hit.id
+            })
+        return candidates
+    except Exception as e:
+        print(f"⚠ Lỗi query Qdrant FAQ: {e}")
+        return []
 
 
 # ============================================
 # 3B) SEMANTIC SEARCH CHO BOOKS / MAJORS
 # ============================================
 def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
-    candidates = []
-
-    if table == "BOOKS":
-        if len(BOOK_EMB) == 0:
-            return []
-        sims = np.dot(BOOK_EMB, q_vec)
-        rows = book_rows
-        th = 0.15
-        idx = np.argsort(-sims)[:top_k]
-        for i in idx:
-            score = float(sims[i])
-            if score < th:
-                continue
-            n, a, y, qty, s, m = rows[i]
-            content = (
-                f"Sách: {n}. Tác giả: {a}. Năm: {y}. "
-                f"Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
-            )
-            candidates.append({
-                "score": score,
-                "question": "",
-                "answer": content,
-                "category": "BOOKS",
-                "id": i
-            })
-        return candidates
-
-    # MAJORS
-    if len(MAJOR_EMB) == 0:
+    """Query Qdrant BOOKS or MAJORS collection"""
+    try:
+        if table == "BOOKS":
+            results = qdrant_client.query_points(
+                collection_name="books",
+                query=q_vec.tolist(),
+                limit=top_k,
+                score_threshold=0.15
+            ).points
+            
+            candidates = []
+            for hit in results:
+                p = hit.payload
+                content = (
+                    f"Sách: {p.get('name')}. Tác giả: {p.get('author')}. Năm: {p.get('year')}. "
+                    f"Số lượng: {p.get('quantity')}. Tình trạng: {p.get('status')}. Ngành: {p.get('major', 'Chung')}"
+                )
+                candidates.append({
+                    "score": hit.score,
+                    "question": "",
+                    "answer": content,
+                    "category": "BOOKS",
+                    "id": hit.id
+                })
+            return candidates
+        
+        elif table == "MAJORS":
+            results = qdrant_client.query_points(
+                collection_name="majors",
+                query=q_vec.tolist(),
+                limit=top_k,
+                score_threshold=0.20
+            ).points
+            
+            candidates = []
+            for hit in results:
+                p = hit.payload
+                content = f"Ngành: {p.get('name')}. Mã ngành: {p.get('major_id')}. Mô tả: {p.get('description', 'Đang cập nhật')}"
+                candidates.append({
+                    "score": hit.score,
+                    "question": "",
+                    "answer": content,
+                    "category": "MAJORS",
+                    "id": hit.id
+                })
+            return candidates
+        
         return []
-    sims = np.dot(MAJOR_EMB, q_vec)
-    rows = major_rows
-    th = 0.20
-    idx = np.argsort(-sims)[:top_k]
-    for i in idx:
-        score = float(sims[i])
-        if score < th:
-            continue
-        name, code, desc = rows[i]
-        content = f"Ngành: {name}. Mã ngành: {code}. Mô tả: {desc or 'Đang cập nhật'}"
-        candidates.append({
-            "score": score,
-            "question": "",
-            "answer": content,
-            "category": "MAJORS",
-            "id": i
-        })
-    return candidates
+    except Exception as e:
+        print(f"⚠ Lỗi query Qdrant {table}: {e}")
+        return []
 
 
 # ============================================
@@ -449,32 +410,50 @@ Chỉ trả về 1 con số duy nhất.
 def strict_answer(question: str, knowledge: str) -> str:
     print(f"[DEBUG STRICT] Q: {question} | Knowledge: {knowledge[:50]}...")
     prompt = f"""
-Bạn là trợ lý ảo của thư viện. 
-NHIỆM VỤ: Trả lời câu hỏi dựa trên thông tin cung cấp bên dưới.
+Bạn là trợ lý ảo của thư viện. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM.
 
-THÔNG TIN (KNOWLEDGE):
+THÔNG TIN:
 {knowledge}
 
-CÂU HỎI (QUESTION): "{question}"
+CÂU HỎI: "{question}"
 
 QUY TẮC:
-1. Trả lời ngắn gọn, đúng trọng tâm bằng Tiếng Việt.
-2. Dùng thông tin trong phần KNOWLEDGE để trả lời.
-3. Nếu thông tin có chứa số liệu, địa điểm, quy trình -> Hãy trích xuất ra để trả lời.
-4. Nếu thông tin không khớp hoàn toàn nhưng có liên quan -> Hãy trả lời dựa trên những gì có thể.
+1. Trả lời NGẮN (1-2 câu), chỉ thông tin CHÍNH XÁC từ KNOWLEDGE
+2. KHÔNG thêm lời chào, KHÔNG hỏi lại, KHÔNG giải thích dài dòng
+3. Nếu hỏi về email/hotline/facebook → CHỈ trả thông tin đó, KHÔNG thêm gì khác
+4. Nếu KNOWLEDGE không liên quan → Trả: "{FALLBACK_MSG}"
 
-Nếu thông tin HOÀN TOÀN KHÔNG LIÊN QUAN thì mới nói: "{FALLBACK_MSG}"
+VÍ DỤ:
+Q: "email thư viện"
+K: "Email: thuvien@ttn.edu.vn, Hotline: 0123456789"
+A: "Email của thư viện là thuvien@ttn.edu.vn nhé!"
 
-Câu trả lời của bạn:
+Q: "facebook thư viện"
+K: "Email: thuvien@ttn.edu.vn, Hotline: 0123456789"
+A: "{FALLBACK_MSG}"
+
+Trả lời (NGẮN GỌN):
 """
-    out = llm(prompt, temp=0.05, n=256)
+    out = llm(prompt, temp=0.1, n=128)  # Giảm temp và max tokens
     print(f"[DEBUG STRICT OUT] {out}")
 
     if not out:
         return FALLBACK_MSG
 
     out = out.strip()
-
+    
+    # Loại bỏ câu hỏi thừa ở cuối
+    if "?" in out:
+        sentences = out.split("?")
+        if len(sentences) > 1 and len(sentences[-1].strip()) < 10:
+            out = sentences[0].strip() + "."
+    
+    # Loại bỏ lời chào thừa
+    greetings = ["Chào bạn!", "Xin chào!", "Dạ,", "Vâng,"]
+    for g in greetings:
+        if out.startswith(g):
+            out = out[len(g):].strip()
+    
     # Chấp nhận câu trả lời có số / email / link
     if any(c.isdigit() for c in out) or "@" in out or "http" in out:
         return out
