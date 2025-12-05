@@ -9,9 +9,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import os
 app = FastAPI()
-# Mount static folder
-app.mount("/static", StaticFiles(directory="view"), name="static")
-
 
 # Cho Python thấy thư mục cha: D:\HTML\1234 (nơi có chat_fixed.py)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

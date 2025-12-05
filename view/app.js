@@ -14,7 +14,7 @@ const input      = document.getElementById("input");
 const sendBtn    = document.getElementById("send");
 const emptyState = document.getElementById("emptyState");
 const btnExport  = document.getElementById("btnExport");
-const btnClear   = document.getElementById("btnClear");
+const btnNew     = document.getElementById("btnNew");
 
 const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
 let sending = false;
@@ -37,11 +37,12 @@ function escapeHtml(s) {
 }
 
 function msgTemplate(role, text, time) {
+  const content = role === "bot" ? (text || "") : escapeHtml(text || "").replace(/\n/g, "<br/>");
   return `
     <article class="msg ${role}">
       <div class="avatar" aria-hidden="true">${role === "bot" ? "🤖" : "🧑"}</div>
       <div>
-        <div class="bubble">${escapeHtml(text || "").replace(/\n/g, "<br/>")}</div>
+        <div class="bubble">${content}</div>
         <div class="meta">${role === "bot" ? "Bot" : "Bạn"} · ${time || formatTime()}</div>
       </div>
     </article>`;
@@ -103,7 +104,12 @@ async function send() {
   if (input) input.value = "";
 
   const now = new Date();
-  const record = { user_message: text, bot_reply: "…", time: formatTime(now) };
+  const record = { user_message: text, bot_reply: `
+  <span class="typing">
+    <span>.</span>
+    <span>.</span>
+    <span>.</span>
+  </span>`, time: formatTime(now) };
   transcript.push(record);
   persist();
   render();
@@ -182,11 +188,10 @@ if (btnExport) {
   });
 }
 
-if (btnClear) {
-  btnClear.addEventListener("click", () => {
-    if (confirm("Xóa toàn bộ phiên chat hiện tại?")) {
-      transcript.splice(0, transcript.length);
-      persist();
+if (btnNew) {
+  btnNew.addEventListener("click", () => {
+    if (confirm("Bắt đầu phiên chat mới?")) {
+      transcript.length = 0;
       render();
     }
   });
