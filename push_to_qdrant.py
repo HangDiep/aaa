@@ -233,7 +233,7 @@ cur.execute("""
 """)
 faq_rows = cur.fetchall()
 FAQ_DATA = [(row[0], normalize(f"{row[3] or ''}: {row[2] or ''}"), row[1], row[2], row[3], row[4]) 
-            for row in faq_rows]  # (notion_id, embed_text, question, answer, category, last_updated)
+            for row in faq_rows if row[0] is not None]  # Skip rows with None notion_id
 
 # BOOKS
 cur.execute("""
@@ -245,7 +245,7 @@ cur.execute("""
 book_rows = cur.fetchall()
 BOOK_DATA = [(row[0], normalize(f"sách {row[1]}. tác giả {row[2]}. ngành {row[6] or ''}"), 
               row[1], row[2], row[3], row[4], row[5], row[6], row[7])
-             for row in book_rows]  # (notion_id, embed_text, name, author, year, quantity, status, major, last_updated)
+             for row in book_rows if row[0] is not None]  # Skip rows with None notion_id
 
 # MAJORS
 cur.execute("""
@@ -255,7 +255,7 @@ cur.execute("""
 major_rows = cur.fetchall()
 MAJOR_DATA = [(row[0], normalize(f"ngành {row[1]}. mã {row[2]}. {row[3] or ''}"), 
                row[1], row[2], row[3])
-              for row in major_rows]  # (notion_id, embed_text, name, major_id, description)
+              for row in major_rows if row[0] is not None]  # Skip rows with None notion_id
 
 conn.close()
 
