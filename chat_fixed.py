@@ -11,8 +11,13 @@ import chat
 import requests 
 from fastapi.responses import PlainTextResponse
 from fastapi import FastAPI, Request
+from sync_n8n_to_sqlite import router as sync_router  # Import sync router
 
 app = FastAPI()
+
+# Include sync endpoints từ sync_n8n_to_sqlite.py
+app.include_router(sync_router)
+print("✅ Sync endpoints included: /notion/faq, /notion/book, /notion/major")
 
 # ============== CẤU HÌNH ==============
 ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
@@ -169,8 +174,6 @@ def pull_approved_from_notion_to_sqlite():
         "filter": {
             "and": [
                 {"property": "Approved", "checkbox": {"equals": True}},
-                # Nếu bạn tạo thêm cột "Synced" (checkbox) trong Notion:
-                # {"property": "Synced", "checkbox": {"equals": False}},
             ]
         }
     }
@@ -191,12 +194,6 @@ def pull_approved_from_notion_to_sqlite():
             "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) VALUES (?,?,?,?,?)",
             (q, a, None, 1.0, _now()),
         )
-        # Đánh dấu đã sync nếu bạn có cột Synced trong Notion:
-        # page_id = row["id"]
-        # requests.patch(f"{base.rstrip('/')}/pages/{page_id}",
-        #    headers={**headers, "Content-Type": "application/json"},
-        #    json={"properties": {"Synced": {"checkbox": True}}})
-
     conn.commit()
     conn.close()
 

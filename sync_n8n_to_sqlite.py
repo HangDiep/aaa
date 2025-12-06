@@ -1,18 +1,10 @@
 """
-API nhận dữ liệu từ n8n (Notion Trigger) và ghi vào SQLite.
+API Router để nhận dữ liệu từ n8n (Notion Trigger) và ghi vào SQLite.
 
-Mỗi lần bạn sửa 1 dòng và tick Approved trong Notion:
-Notion Trigger -> n8n -> HTTP POST vào 3 endpoint dưới đây
-    /notion/faq
-    /notion/book
-    /notion/major
-
-Bảng trong SQLite:
-    faq, books, majors
-đều có khóa chính là notion_id (id của page trong Notion).
+Được tích hợp vào chat_fixed.py thông qua app.include_router()
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -21,7 +13,8 @@ import os
 
 DB_PATH = os.getenv("FAQ_DB_PATH", "faq.db")
 
-app = FastAPI(title="Notion Trigger Sync API")
+# Tạo router thay vì app
+router = APIRouter(prefix="/notion", tags=["notion-sync"])
 
 
 # ==========================
@@ -113,17 +106,17 @@ def init_db():
     conn.close()
 
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
+# Initialize database on module import
+init_db()
 
 class DeletePayload(BaseModel):
     notion_id: str
+
 # ==========================
 #  FAQ endpoint
 # ==========================
 
-@app.post("/notion/faq")
+@router.post("/faq")
 def upsert_faq(item: FAQItem):
     try:
         print(f"📥 Received FAQ data: {item.dict()}")  # Debug log
@@ -156,8 +149,8 @@ def upsert_faq(item: FAQItem):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/notion/faq/delete")
-@app.delete("/notion/faq/delete")
+@router.post("/faq/delete")
+@router.delete("/faq/delete")
 def delete_faq(payload: DeletePayload):
     """Xóa FAQ khi bỏ tích Approved"""
     try:
@@ -176,7 +169,7 @@ def delete_faq(payload: DeletePayload):
 #  BOOKS endpoint
 # ==========================
 
-@app.post("/notion/book")
+@router.post("/book")
 def upsert_book(item: BookItem):
     try:
         conn = get_conn()
@@ -215,8 +208,8 @@ def upsert_book(item: BookItem):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/notion/book/delete")
-@app.delete("/notion/book/delete")
+@router.post("/book/delete")
+@router.delete("/book/delete")
 def delete_book(payload: DeletePayload):
     """Xóa BOOK khi bỏ tích Approved"""
     try:
@@ -237,7 +230,7 @@ def delete_book(payload: DeletePayload):
 #  MAJORS endpoint
 # ==========================
 
-@app.post("/notion/major")
+@router.post("/major")
 def upsert_major(item: MajorItem):
     try:
         conn = get_conn()
@@ -262,8 +255,8 @@ def upsert_major(item: MajorItem):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/notion/major/delete")
-@app.delete("/notion/major/delete")
+@router.post("/major/delete")
+@router.delete("/major/delete")
 def delete_major(payload: DeletePayload):
     """Xóa MAJOR khi bỏ tích Approved"""
     try:
