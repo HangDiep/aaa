@@ -221,8 +221,8 @@ def sync_faq():
             if dp and dp.get("start"):
                 last = dp["start"]; break
 
-        if rid and question and answer:
-            # UPSERT theo notion_id
+        # Chỉ cần có answer là đủ (question có thể trống)
+        if rid and answer:
             c.execute("""
                 INSERT INTO faq(notion_id, question, answer, category, language, approved, last_updated)
                 VALUES (?,?,?,?,?,?,?)
@@ -233,8 +233,18 @@ def sync_faq():
                     language=excluded.language,
                     approved=excluded.approved,
                     last_updated=excluded.last_updated
-            """, (rid, question, answer, category, lang, 1, last))
+            """, (rid, question or "", answer, category, lang, 1, last))
     notion_ids = [r.get("id") for r in rows if r.get("id")]
+    
+    # Đếm số rows thực tế được insert (chỉ cần có answer)
+    inserted_count = 0
+    for r in rows:
+        p = r.get("properties", {}) or {}
+        rid = r.get("id", "")
+        answer = _p_txt(_get_prop(p, "Answer"))
+        if rid and answer:
+            inserted_count += 1
+    
     if notion_ids:
         placeholders = ",".join(["?"] * len(notion_ids))
         c.execute(f"""
@@ -244,7 +254,7 @@ def sync_faq():
     else:
         print("[sync] faq: Notion trả về 0 dòng – bỏ qua bước xoá.")
     conn.commit(); conn.close()
-    print(f"[sync] FAQ: {len(rows)} rows")
+    print(f"[sync] FAQ: {inserted_count}/{len(rows)} rows (inserted/total from Notion)")
 
 # --------------------------
 # Sync Majors

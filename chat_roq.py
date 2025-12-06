@@ -56,16 +56,16 @@ def normalize(x: str) -> str:
 
 
 # ============================================
-#  LLM CALL – ZHIPU AI (GLM-4-PLUS)
+#  LLM CALL – DÙNG GEMINI THAY OLLAMA
 # ============================================
 import time
 import random
 
 def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
     """
-    Gọi Zhipu AI API (GLM-4-Plus)
+    Gọi Groq API (OpenAI-compatible format).
     """
-    if not GROQ_API_KEY:  # Dùng biến GROQ_API_KEY cho Zhipu key
+    if not GROQ_API_KEY:
         return ""
 
     headers = {
@@ -73,9 +73,12 @@ def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
         "Content-Type": "application/json"
     }
     
+    # Groq hỗ trợ message format
     payload = {
-        "model": GROQ_MODEL,  # glm-4-plus
-        "messages": [{"role": "user", "content": prompt}],
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
         "temperature": temp,
         "max_tokens": n,
     }
@@ -86,28 +89,28 @@ def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
     for attempt in range(max_retries):
         try:
             resp = requests.post(
-                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=10
             )
             
             if resp.status_code == 200:
                 data = resp.json()
                 return data["choices"][0]["message"]["content"].strip()
             
-            # Xử lý lỗi 429 (rate limit)
+            # Xử lý lỗi 429
             if resp.status_code == 429:
                 wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                print(f"⚠ Zhipu AI quá tải (429). Đang chờ {wait_time:.1f}s...")
+                print(f"⚠ Groq quá tải (429). Đang chờ {wait_time:.1f}s...")
                 time.sleep(wait_time)
                 continue
                 
-            print(f"⚠ Lỗi Zhipu AI {resp.status_code}: {resp.text}")
+            print(f"⚠ Lỗi Groq {resp.status_code}: {resp.text}")
             return ""
 
         except Exception as e:
-            print(f"⚠ Lỗi gọi Zhipu AI: {e}")
+            print(f"⚠ Lỗi gọi Groq: {e}")
             return ""
     
     return ""
