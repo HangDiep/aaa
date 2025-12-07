@@ -4,12 +4,13 @@ API Router để nhận dữ liệu từ n8n (Notion Trigger) và ghi vào SQLit
 Được tích hợp vào chat_fixed.py thông qua app.include_router()
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import sqlite3
 import os
+import json
 
 # Get absolute path to database
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -116,8 +117,53 @@ class DeletePayload(BaseModel):
     notion_id: str
 
 # ==========================
-#  FAQ endpoint
+#  DEBUG endpoint
 # ==========================
+
+@router.post("/debug/faq")
+async def debug_faq(request: Request):
+    """Debug endpoint để xem n8n gửi gì"""
+    try:
+        # Lấy raw body
+        body = await request.body()
+        
+        # Lấy headers
+        headers = dict(request.headers)
+        
+        # Try parse JSON
+        try:
+            body_str = body.decode('utf-8')
+            json_data = json.loads(body_str)
+        except:
+            json_data = None
+        
+        print("=" * 80)
+        print("🔍 DEBUG /notion/debug/faq")
+        print("=" * 80)
+        print(f"\n📋 Headers:")
+        for key, value in headers.items():
+            print(f"   {key}: {value}")
+        
+        print(f"\n📦 Raw Body ({len(body)} bytes):")
+        print(body.decode('utf-8', errors='replace')[:1000])
+        
+        print(f"\n🔧 Parsed JSON:")
+        if json_data:
+            print(json.dumps(json_data, indent=2, ensure_ascii=False))
+        else:
+            print("   ❌ Không parse được JSON")
+        
+        print("=" * 80)
+        
+        return {
+            "status": "debug_ok",
+            "headers": headers,
+            "body_length": len(body),
+            "json_data": json_data
+        }
+    except Exception as e:
+        print(f"❌ Debug error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @router.post("/faq")
 def upsert_faq(item: FAQItem):
@@ -146,6 +192,21 @@ def upsert_faq(item: FAQItem):
         conn.commit()
         conn.close()
         print(f"✅ Inserted/Updated FAQ: {item.notion_id}")  # Debug log
+        
+        # ✅ TỰ ĐỘNG PUSH LÊN QDRANT
+        import subprocess
+        try:
+            print("🔄 Đang push lên Qdrant...")
+            subprocess.Popen(
+                ["python", "push_to_qdrant.py"],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print("✅ Qdrant sync started (background)")
+        except Exception as e:
+            print(f"⚠️ Lỗi khi push Qdrant: {e}")
+        
         return {"status": "ok", "source": "faq", "notion_id": item.notion_id}
     except Exception as e:
         print(f"❌ Error: {e}")  # Debug log
