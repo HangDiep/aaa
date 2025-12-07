@@ -11,7 +11,10 @@ from datetime import datetime
 import sqlite3
 import os
 
-DB_PATH = os.getenv("FAQ_DB_PATH", "faq.db")
+# Get absolute path to database
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.getenv("FAQ_DB_PATH", os.path.join(BASE_DIR, "faq.db"))
+print(f"[DB] Using database: {DB_PATH}")
 
 # Tạo router thay vì app
 router = APIRouter(prefix="/notion", tags=["notion-sync"])
@@ -269,3 +272,4 @@ def delete_major(payload: DeletePayload):
         return {"status": "deleted", "source": "major", "notion_id": payload.notion_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+# lần này chạy xong thì tôi tick và bỏ chọn thì chả thấy thông báo gì cũng không thấy post
