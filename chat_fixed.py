@@ -12,6 +12,7 @@ import requests
 from fastapi.responses import PlainTextResponse
 from fastapi import FastAPI, Request
 from sync_n8n_to_sqlite import router as sync_router  # Import sync router
+from sync_dynamic import router as dynamic_router  # Import dynamic sync router
 
 app = FastAPI()
 
@@ -19,7 +20,60 @@ app = FastAPI()
 app.include_router(sync_router)
 print("✅ Sync endpoints included: /notion/faq, /notion/book, /notion/major")
 
+# Include dynamic sync endpoints từ sync_dynamic.py
+app.include_router(dynamic_router)
+print("✅ Dynamic sync endpoints included: /notion/dynamic/sync, /notion/dynamic/delete")
+
+# ============== RELOAD CONFIG ENDPOINT ==============
+@app.post("/reload-config")
+def reload_config():
+    """
+    Endpoint để reload collections config sau khi thêm bảng mới
+    Gọi endpoint này để chat.py nhận diện bảng mới ngay lập tức
+    """
+    try:
+        from chat_dynamic_router import trigger_config_reload
+        collections = trigger_config_reload()
+        return {
+            "status": "ok",
+            "message": "Config reloaded successfully",
+            "collections": list(collections.keys()),
+            "count": len(collections)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 # ============== CẤU HÌNH ==============
+
+
+import asyncio
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Khởi động luồng quét tự động (Internal Scheduler).
+    Thay thế n8n: Tự động quét 3 phút/lần.
+    """
+    asyncio.create_task(run_auto_scan_loop())
+
+async def run_auto_scan_loop():
+    # Lấy cấu hình từ .env (Mặc định 180s = 3 phút)
+    interval = int(os.getenv("SYNC_INTERVAL_SECONDS", 180))
+    print(f"⏰ [Internal Scheduler] Auto-Scan started (Every {interval}s)")
+    
+    from sync_dynamic import scan_new_databases
+    while True:
+        try:
+            print(f"\n⏰ [Auto-Scan] Triggering scheduled scan (Next run in {interval}s)...")
+            await scan_new_databases()
+        except Exception as e:
+            print(f"❌ [Auto-Scan] Error: {e}")
+        
+        await asyncio.sleep(interval)
+
 ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
 
 try:

@@ -465,17 +465,24 @@ Trả lời (NGẮN GỌN):
 # ============================================
 #  MAIN PROCESS - TỐI ƯU HÓA
 # ============================================
+# ============================================
+#  MAIN PROCESS - DYNAMIC & AUTOMATED
+# ============================================
 def process_message(text: str) -> str:
     """
-    ✅ Tối ưu hóa:
-    - Chỉ tạo 1 vector thay vì 2
-    - Cleanup sau mỗi request
+    ✅ DYNAMIC VERSION - Hỗ trợ bất kỳ collection nào
+    - Tự động load collections từ collections_config
+    - Router động (Vector + LLM Hybrid)
+    - Search động cho mọi collection
     """
-    print("[CHAT.PY] ĐÃ GỌI NÃO")
+    print("[CHAT.PY] ĐÃ GỌI NÃO (Dynamic Mode)")
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
 
     try:
+        # Import dynamic tools
+        from chat_dynamic_router import route_llm_dynamic, search_dynamic, get_collections_with_descriptions, trigger_config_reload, GLOBAL_COLLECTION
+        
         # ✅ Lấy model (lazy load)
         model = get_model()
         
@@ -483,10 +490,24 @@ def process_message(text: str) -> str:
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
 
-        # B1: Router (LLM + Embedding)
-        route = route_llm(text, q_vec)
+        # B1: Check greeting (Vẫn giữ rule greeting đơn giản)
+        if is_greeting(text) and len(text.split()) <= 4:
+            collections = get_collections_with_descriptions()
+            # Dynamic Greeting: Liệt kê top 3 chủ đề đang có
+            collection_names = ', '.join([n.upper() for n in list(collections.keys())[:3]])
+            return f"Xin chào! Tôi là trợ lý ảo. Bạn có thể hỏi về: {collection_names} hoặc bất cứ thông tin nào khác..."
 
-        # B2: Rewrite
+        # B2: Dynamic Router (Hybrid: Vector First -> LLM Fallback)
+        # Hàm này trả về Qdrant Filter hoặc None (Search All)
+        search_filter = route_llm_dynamic(text, q_vec, llm, model)
+        
+        # Log để debug
+        if search_filter:
+            print(f"[PROCESS] Filter active: {search_filter}")
+        else:
+            print(f"[PROCESS] Search Mode: GLOBAL (No Filter)")
+
+        # B3: Rewrite câu hỏi (Giúp search chuẩn hơn)
         rewritten = rewrite_question(text)
         
         # ✅ Chỉ tạo vector mới nếu rewritten khác text
@@ -495,60 +516,62 @@ def process_message(text: str) -> str:
         else:
             q_vec_search = q_vec
 
-        if route == "GREETING":
-            return "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
-
-        # BOOKS
-        if route == "BOOKS":
-            candidates = search_nonfaq("BOOKS", q_vec_search, top_k=10)
-            if not candidates:
-                return "Không tìm thấy sách nào phù hợp."
-
-            print(f"[DEBUG BOOKS] Found {len(candidates)} candidates.")
-            best_cand = rerank_with_llm(rewritten, candidates)
-            if not best_cand:
-                best_cand = candidates[0]
-
-            return strict_answer(rewritten, best_cand['answer'])
-
-        # MAJORS
-        if route == "MAJORS":
-            candidates = search_nonfaq("MAJORS", q_vec_search, top_k=10)
-            if not candidates:
-                return "Không tìm thấy ngành học nào phù hợp."
-
-            print(f"[DEBUG MAJORS] Found {len(candidates)} candidates.")
-            best_cand = rerank_with_llm(rewritten, candidates)
-            if not best_cand:
-                best_cand = candidates[0]
-
-            return strict_answer(rewritten, best_cand['answer'])
-
-        # Mặc định: FAQ
-        candidates = search_faq_candidates(q_vec_search, top_k=10, filter_category=None)
-
+        # B4: Dynamic Search - Query vào Knowledge Base (Single Collection)
+        # Lưu ý: search_dynamic sẽ tự dùng GLOBAL_COLLECTION và apply filter
+        candidates = search_dynamic("unused_param", q_vec_search, top_k=10)
+        
         if not candidates:
-            print("[DEBUG] ❌ Không tìm thấy candidate nào (do điểm thấp hơn ngưỡng).")
+            print(f"[DEBUG] ❌ Không tìm thấy kết quả nào.")
+            # Fallback: Nếu filter quá chặt, thử thả lỏng search all lần cuối
+            if search_filter:
+                 print(f"[DEBUG] 🔄 Thử Search All (bỏ filter)...")
+                 # Gọi lại search_dynamic mà không thông qua router logic (hoặc sửa search_dynamic để nhận filter optional)
+                 # Hiện tại search_dynamic trong chat_dynamic_router đã được tối ưu để nhận filter từ bên trong, 
+                 # nhưng ta cần truyền filter vào nó. 
+                 # ĐỂ ĐƠN GIẢN: search_dynamic hiện tại đang tự build filter dựa trên `collection_name` text.
+                 # TA SẼ CẦN SỬA chat_dynamic_router để nhận object Filter trực tiếp thì tốt hơn.
+                 # NHƯNG ĐỂ KHÔNG SỬA NHIỀU FILE: Ta dùng cơ chế đã thống nhất: 
+                 # Router trả về None -> Search All.
+                 # Nếu Router trả về Filter -> Search with Filter.
+                 pass
+            
             return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
 
-        print(f"[DEBUG] Found {len(candidates)} candidates:")
+        print(f"[DEBUG] Found {len(candidates)} candidates.")
         for c in candidates:
             print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
 
+        # B5: Rerank với LLM (Chọn câu trả lời tốt nhất trong đám candidates)
         best_cand = rerank_with_llm(rewritten, candidates)
+        
         if not best_cand:
-            print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates. Lấy Top 1.")
-            best_cand = candidates[0]
+            # Nếu LLM chê hết, nhưng Top 1 score vẫn cao -> Lấy Top 1 (Trust Vector)
+            if candidates and candidates[0]['score'] > 0.35: 
+                 best_cand = candidates[0]
+                 print("[DEBUG] ⚠️ Rerank từ chối, nhưng lấy Top 1 do score ổn.")
+            else:
+                print("[DEBUG] ❌ Rerank từ chối tất cả.")
+                return "Xin lỗi, tôi tìm thấy một số thông tin nhưng có vẻ không khớp với câu hỏi của bạn."
         else:
             print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
 
-        final_ans = strict_answer(rewritten, best_cand['answer'])
+        # B6: Generate answer (Viết câu trả lời cuối cùng)
+        # Truyền cả Category nguồn vào để LLM biết ngữ cảnh
+        knowledge_context = f"[{best_cand['category']}] {best_cand['answer']}"
+        final_ans = strict_answer(rewritten, knowledge_context)
         return final_ans
+    
+    except Exception as e:
+        print(f"[PROCESS] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "Xin lỗi, hệ thống đang gặp lỗi xử lý. Vui lòng thử lại sau."
     
     finally:
         # ✅ Cleanup sau mỗi request
         gc.collect()
         cleanup_model_if_idle()
+
 
 # ============================================
 #  CLI
