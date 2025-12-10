@@ -1,6 +1,6 @@
 """
 Enterprise Dynamic Router & Search
-Chuyển đổi từ LLM Router sang Vector Semantic Router
+Multi-step Reasoning Router + Clarification + Humanize Answer
 Query vào Single Collection 'knowledge_base' với Metadata Filters
 """
 
@@ -9,6 +9,7 @@ import time
 import numpy as np
 from typing import Dict, List, Optional
 import os
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 # Load .env
@@ -24,249 +25,499 @@ except Exception:
 FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a - Copy\faq.db")
 GLOBAL_COLLECTION = "knowledge_base"
 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
+
 # ============================================
 #  COLLECTIONS CONFIG CACHE
 # ============================================
 
-_collections_cache = None
+_collections_cache: Optional[Dict[str, str]] = None
 _cache_time = 0
-CACHE_TTL = 300  # Tăng lên 5 phút vì không cần load thường xuyên
+CACHE_TTL = 300  # 5 phút để làm gì nhỉ
+_description_embeddings_cache: Optional[Dict[str, np.ndarray]] = None
+
 
 def get_collections_with_descriptions() -> Dict[str, str]:
     """
-    Lấy danh sách collections + mô tả từ collections_config
+    Đọc danh sách bảng (source_table) & mô tả bảng (table_description)
+    TRỰC TIẾP từ Qdrant.
     """
+    import requests
+
     global _collections_cache, _cache_time
-    
-    if time.time() - _cache_time > CACHE_TTL or _collections_cache is None:
-        try:
-            conn = sqlite3.connect(FAQ_DB_PATH)
-            cur = conn.cursor()
-            cur.execute("SELECT name, description FROM collections_config WHERE enabled = 1")
-            _collections_cache = dict(cur.fetchall())
-            _cache_time = time.time()
-            conn.close()
-        except Exception as e:
-            print(f"[CONFIG] Error: {e}")
-            _collections_cache = {}
-    
-    return _collections_cache
 
-# ============================================
-#  HYBRID ROUTER (Vector + LLM Fallback)
-# ============================================
+    # cache 5 phút
+    if _collections_cache and time.time() - _cache_time < CACHE_TTL:
+        return _collections_cache
 
-_description_embeddings_cache = {}
+    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
+    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-def get_description_embeddings(model):
+    url = f"{QDRANT_URL}/collections/{GLOBAL_COLLECTION}/points/scroll"
+    headers = {"Content-Type": "application/json"}
+    if QDRANT_API_KEY:
+        headers["api-key"] = QDRANT_API_KEY
+
+    body = {"limit": 2000, "with_payload": True, "with_vector": False}
+
+    try:
+        resp = requests.post(url, headers=headers, json=body)
+        resp.raise_for_status()
+        data = resp.json()
+
+        points = data.get("result", {}).get("points", [])
+        collections = {}
+
+        for p in points:
+            payload = p.get("payload", {})
+            table = payload.get("source_table")
+            desc = payload.get("table_description") or f"Bảng {table}"
+
+            if table and table not in collections:
+                collections[table] = desc
+
+        _collections_cache = collections
+        _cache_time = time.time()
+
+        print("[ROUTER] Qdrant collections + descriptions:", collections)
+        return collections
+
+    except Exception as e:
+        print("[ROUTER] ERROR reading collections from Qdrant:", e)
+        return {}
+
+
+def get_description_embeddings(model) -> Dict[str, np.ndarray]:
     """
-    Cache embedding của các mô tả collection để so sánh nhanh
+    Cache embedding của các mô tả collection để so sánh nhanh.
+    Mỗi collection có 1 vector đại diện: "name: description"
     """
     global _description_embeddings_cache
+
     collections = get_collections_with_descriptions()
-    
-    if not collections: return {}
-    
-    # Check nếu cache đã đủ (số lượng key khớp nhau)
-    if len(_description_embeddings_cache) == len(collections):
+    if not collections:
+        return {}
+
+    if (
+        _description_embeddings_cache
+        and len(_description_embeddings_cache) == len(collections)
+    ):
         return _description_embeddings_cache
-        
+
     print("[ROUTER] Caching collection description embeddings...")
+    texts: List[str] = []
+    names: List[str] = []
+
     for name, desc in collections.items():
-        # Embed tên + mô tả để tăng độ chính xác
-        text = f"{name}: {desc}" 
-        # Lưu ý: model phải được truyền vào hoặc load lại. 
-        # Để đơn giản và nhanh, ta dùng model từ chat.py truyền sang hoặc giả định q_vec đã có.
-        # Ở đây ta sẽ tính similarity trực tiếp nếu có vector. 
-        # Tuy nhiên hàm route_llm_dynamic nhận q_vec, nên ta cần vector của descriptions.
-        # Vì model không có sẵn global ở đây, ta sẽ dùng trick:
-        # Lưu text thôi, việc tính toán sẽ cần model. 
-        # NHƯNG để tối ưu, ta nên yêu cầu chat.py truyền model vào hoặc tính sẵn.
-        pass
-    return collections
+        text = f"{name}: {desc}"
+        texts.append(text)
+        names.append(name)
 
-def cosine_similarity(v1, v2):
-    return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    try:
+        embeddings = model.encode(texts, normalize_embeddings=True)
+    except Exception as e:
+        print(f"[ROUTER] Error encoding collection descriptions: {e}")
+        return {}
 
-def route_llm_dynamic(question: str, q_vec: np.ndarray, llm_func, model_func=None) -> Optional[Dict]:
+    _description_embeddings_cache = {}
+    for i, name in enumerate(names):
+        _description_embeddings_cache[name] = np.array(embeddings[i])
+
+    return _description_embeddings_cache
+
+
+# ============================================
+#  LLM NỘI BỘ (dùng cho humanize nếu cần)
+# ============================================
+
+def _local_llm(prompt: str, temp: float = 0.2, n: int = 256) -> str:
+    if not GROQ_API_KEY:
+        return ""
+
+    import requests
+    import random
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temp,
+        "max_tokens": n,
+    }
+
+    max_retries = 2
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                result = data["choices"][0]["message"]["content"].strip()
+                return result
+
+            if resp.status_code == 429:
+                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                print(f"⚠ Zhipu AI quá tải (429). Đang chờ {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+
+            print(f"⚠ Lỗi Zhipu AI {resp.status_code}: {resp.text}")
+            return ""
+        except Exception as e:
+            print(f"⚠ Lỗi gọi Zhipu AI: {e}")
+            return ""
+
+    return ""
+
+
+def humanize_answer(user_question: str, raw_answer: str) -> str:
     """
-    Hybrid Router: 
-    1. So khớp Vector câu hỏi với Vector mô tả của từng Collection.
-    2. Nếu Score > 0.55 (Tự tin) -> Chọn luôn (Nhanh).
-    3. Nếu Score thấp (Mơ hồ) -> Hỏi LLM (Thông minh).
+    Viết lại câu trả lời cho tự nhiên, thân thiện như nhân viên thư viện.
+    CHỈ HỌC TỪ CÂU TRẢ LỜI (raw_answer). Câu hỏi chỉ để tham chiếu ngữ cảnh.
     """
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
-    
-    collections = get_collections_with_descriptions()
-    if not collections: return None
-    
-    collection_names = list(collections.keys())
-    
-    # --- BƯỚC 1: VECTOR ROUTING (NHANH) ---
-    best_coll = None
-    best_score = -1
-    
-    # Do ta không có model object ở đây để encode descriptions, 
-    # ta sẽ dùng một cách tiếp cận khác: Search vào Qdrant nhưng chỉ lấy metadata
-    # Hoặc tốt hơn: Chatbot nên truyền thêm `model` vào hàm này.
-    # Nhưng để không phá vỡ signature, ta sẽ bỏ qua bước cache vector phức tạp
-    # và dùng chiến thuật "LLM là chốt chặn cuối".
-    
-    # Tạm thời Logic Hybrid đơn giản:
-    # Luôn ưu tiên LLM cho router nếu user muốn độ chính xác tuyệt đối như đã yêu cầu.
-    # NHƯNG user vừa đồng ý "Vector trước, LLM sau".
-    
-    # Vì file này không giữ model, ta gọi LLM luôn cho các ca khó? 
-    # KHÔNG, ta cần vector comparison.
-    
-    # GIẢI PHÁP THỰC TẾ:
-    # Để tránh dependency hell, ta sẽ dùng LLM làm fallback cho router
-    # khi mà Search Vector trả về kết quả phân tán (entropy cao).
-    pass 
-
-    # --- THỰC HIỆN ROUTING LOGIC MỚI ---
-    
-    # 1. Tạo Options cho LLM
-    options = [f"- {name.upper()}: {desc}" for name, desc in collections.items()]
-    options_str = "\n".join(options)
-    
-    # 2. Định nghĩa Prompt
     prompt = f"""
-Nhiệm vụ: Phân loại câu hỏi vào đúng chủ đề.
+Bạn là nhân viên thư viện, nhiệm vụ là trả lời NGẮN GỌN nhưng TỰ NHIÊN, THÂN THIỆN, giống con người thật.
 
-Danh sách chủ đề:
+THÔNG TIN CHÍNH XÁC (CHỈ ĐƯỢC DÙNG DỮ LIỆU NÀY, KHÔNG ĐƯỢC BỊA):
+{raw_answer}
+
+CÂU HỎI CỦA NGƯỜI DÙNG:
+\"{user_question}\"
+
+YÊU CẦU:
+- Chỉ dùng thông tin trong phần THÔNG TIN CHÍNH XÁC để trả lời.
+- KHÔNG được thêm số liệu, địa chỉ, link, email, số điện thoại nếu không có trong raw_answer.
+- Nếu dữ liệu là dạng "key: value | key2: value2", hãy ghép lại thành câu mượt mà.
+- Giữ thái độ lịch sự, thân thiện như nhân viên thư viện.
+
+Trả lời:
+"""
+    out = _local_llm(prompt, temp=0.7, n=200)
+    return out.strip() if out else raw_answer.strip()
+
+
+def cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
+    return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+
+
+# ============================================
+#  ROUTER RESULT STRUCT
+# ============================================
+
+@dataclass
+class RouterResult:
+    target_collection: Optional[str]       # tên bảng hoặc None (GLOBAL)
+    mode: str                              # "GLOBAL" hoặc "COLLECTION"
+    rewritten_question: str                # câu hỏi đã làm rõ
+    needs_clarification: bool              # có cần hỏi lại user không
+    clarification_question: Optional[str]  # câu hỏi để hỏi lại
+    confidence: float                      # độ tự tin (0-1)
+
+
+# ============================================
+#  MULTI-STEP REASONING ROUTER (CoT + Clarification)
+# ============================================
+
+def reason_and_route(
+    question: str, q_vec: np.ndarray, llm_func, model
+) -> RouterResult:
+    """
+    Multi-step Intent Reasoning + Clarification.
+
+    1. Vector routing với embedding mô tả từng collection.
+    2. Nếu đủ tự tin → chọn collection luôn.
+    3. Nếu mơ hồ → LLM CoT:
+        - Hiểu ý định
+        - Chọn collection hoặc GLOBAL
+        - Quyết định có cần hỏi lại không
+        - Viết lại câu hỏi rõ nghĩa hơn
+    """
+    collections = get_collections_with_descriptions()
+    if not collections:
+        return RouterResult(
+            target_collection=None,
+            mode="GLOBAL",
+            rewritten_question=question,
+            needs_clarification=False,
+            clarification_question=None,
+            confidence=0.0,
+        )
+
+    # ---------- B1: VECTOR ROUTING ----------
+    desc_embeds = get_description_embeddings(model)
+    scores = []
+    for name, emb in desc_embeds.items():
+        s = cosine_similarity(q_vec, emb)
+        scores.append((name, s))
+
+    scores.sort(key=lambda x: x[1], reverse=True)
+    best_name, best_score = scores[0]
+    second_score = scores[1][1] if len(scores) > 1 else 0.0
+    margin = best_score - second_score
+
+    print(
+        f"[ROUTER] Vector → best={best_name} ({best_score:.3f}), "
+        f"second={second_score:.3f}, margin={margin:.3f}"
+    )
+
+    # Ngưỡng tự tin: cực kỳ rõ ràng → không cần LLM
+    if best_score > 0.70 and margin > 0.15:
+        print(f"[ROUTER] ✅ Tin tưởng VECTOR, chọn collection: {best_name}")
+        return RouterResult(
+            target_collection=best_name,
+            mode="COLLECTION",
+            rewritten_question=question,
+            needs_clarification=False,
+            clarification_question=None,
+            confidence=float(best_score),
+        )
+
+    # ---------- B2: LLM REASONING (CoT + Clarification) ----------
+    top_candidates = scores[:3]
+    options_lines = []
+    for name, s in top_candidates:
+        desc = collections.get(name, "")
+        options_lines.append(f"- {name}: {desc} (similarity={s:.2f})")
+    options_str = "\n".join(options_lines)
+
+    prompt = f"""
+Bạn là ROUTER thông minh cho chatbot thư viện.
+
+CÂU HỎI GỐC:
+\"{question}\"
+
+CÁC BẢNG DỮ LIỆU (COLLECTIONS) CÓ THỂ LIÊN QUAN:
 {options_str}
 
-Câu hỏi: "{question}"
+NHIỆM VỤ (SUY NGHĨ NHIỀU BƯỚC TRONG ĐẦU BẠN):
+1. Hiểu người dùng đang hỏi về loại thông tin gì.
+2. Quyết định câu hỏi nên tra trong bảng nào (nếu rõ ràng).
+3. Nếu câu hỏi QUÁ MƠ HỒ (không biết nên tra bảng nào) → đề xuất hỏi lại người dùng.
+4. Viết lại câu hỏi thành phiên bản rõ nghĩa hơn để dùng cho tìm kiếm.
 
-Yêu cầu:
-- Nếu câu hỏi rõ ràng thuộc về một chủ đề -> Trả về Tên chủ đề (VD: BOOKS).
-- Nếu câu hỏi mơ hồ, không rõ, hoặc hỏi chung chung -> Trả về "GLOBAL".
-
-Chỉ trả về 1 từ duy nhất.
+ĐỊNH DẠNG TRẢ LỜI (JSON, KHÔNG GIẢI THÍCH THÊM):
+{{
+  "target_collection": "<tên collection hoặc null nếu nên GLOBAL>",
+  "needs_clarification": true/false,
+  "clarification_question": "<câu hỏi cần hỏi lại nếu needs_clarification=true, ngược lại để rỗng>",
+  "rewritten_question": "<phiên bản câu hỏi rõ nghĩa hơn, nếu không cần đổi thì dùng lại câu gốc>",
+  "confidence": 0.0-1.0
+}}
 """
-    
-    # 3. Chiến lược Hybrid:
-    # BỎ Hard Rules (Keyword) theo yêu cầu user -> Dùng Vector Score để "hiểu"
-    
-    # Bước 1: Thử Search Vector vào Global Collection để xem Top 1 là gì
-    # Nếu Top 1 có điểm số cao (VD > 0.6) -> Nghĩa là câu hỏi cực kỳ khớp với nội dung
-    # -> Router tin tưởng Vector luôn.
-    
-    # Do hàm này không có sẵn Qdrant Client để search thử, ta sẽ dùng chiến thuật:
-    # "Hỏi trước, Router sau" (Post-Routing) hoặc chấp nhận gọi LLM cho các câu ngắn.
-    
-    # Tuy nhiên, để đúng ý user ("Hiểu như người"):
-    # Ta sẽ gọi LLM. Nhưng để tiết kiệm, ta gọi với model nhỏ/nhanh hoặc chỉ gọi khi cần.
-    # Trong trường hợp này, để đảm bảo chất lượng ngữ nghĩa tốt nhất như user đòi hỏi:
-    # -> Ta sẽ ưu tiên LLM Router.
-    
+
     try:
-        # Gọi LLM để hiểu ngữ nghĩa (Semantic Understanding)
-        # Prompt đã được tối ưu để phân loại
-        out = llm_func(prompt, temp=0.0, n=10).strip().upper()
-        
-        # Clean output
-        import re
-        out = re.sub(r'[^A-Z_]', '', out)
-        
-        valid_collections = [k.upper() for k in collections.keys()]
-        
-        if out in valid_collections:
-            print(f"[ROUTER] 🧠 LLM Selected: {out}")
-            return Filter(must=[FieldCondition(key="source_table", match=MatchValue(value=out.lower()))])
-        elif out == "GLOBAL":
-            print(f"[ROUTER] 🧠 LLM Selected: GLOBAL (Search All)")
-            return None # Search All
-            
+        raw = llm_func(prompt, temp=0.2, n=256)
+        import json
+        clean = raw.strip()
+        clean = clean.replace("```json", "").replace("```", "").strip()
+
+        data = json.loads(clean)
+        target_collection = data.get("target_collection")
+        if isinstance(target_collection, str):
+            target_collection = target_collection.strip() or None
+
+        needs_clarification = bool(data.get("needs_clarification", False))
+        clarification_question = data.get("clarification_question") or None
+        rewritten_question = data.get("rewritten_question") or question
+        confidence = float(data.get("confidence", 0.0))
+
+        # Chuẩn hoá tên collection nếu LLM trả về dạng khác
+        if target_collection:
+            target_collection = target_collection.lower()
+            valid = list(collections.keys())
+            if target_collection not in valid:
+                # Thử match kiểu case-insensitive
+                for name in valid:
+                    if target_collection == name.lower():
+                        target_collection = name
+                        break
+                else:
+                    # Không match được → dùng GLOBAL
+                    target_collection = None
+
+        mode = "COLLECTION" if target_collection else "GLOBAL"
+
+        print(
+            f"[ROUTER LLM] collection={target_collection}, "
+            f"clarify={needs_clarification}, conf={confidence:.2f}"
+        )
+
+        return RouterResult(
+            target_collection=target_collection,
+            mode=mode,
+            rewritten_question=rewritten_question,
+            needs_clarification=needs_clarification,
+            clarification_question=clarification_question,
+            confidence=confidence,
+        )
+
     except Exception as e:
-        print(f"[ROUTER] ⚠️ LLM Error: {e}. Fallback to Global Search.")
-        
-    return None # Mặc định Search All (An toàn nhất)
-
+        print(f"[ROUTER] ⚠️ LLM Reasoning error: {e}. Fallback GLOBAL.")
+        return RouterResult(
+            target_collection=None,
+            mode="GLOBAL",
+            rewritten_question=question,
+            needs_clarification=False,
+            clarification_question=None,
+            confidence=float(best_score),
+        )
 
 
 # ============================================
-#  SEARCH DYNAMIC (SINGLE COLLECTION)
+#  BACKWARD-COMPAT: route_llm_dynamic (trả Filter)
 # ============================================
 
-def search_dynamic(collection_name: str, q_vec: np.ndarray, top_k: int = 10) -> List[Dict]:
+def route_llm_dynamic(
+    question: str, q_vec: np.ndarray, llm_func, model_func=None
+) -> Optional[Dict]:
     """
-    Query vào Global Collection 'knowledge_base'
-    Tham số collection_name ở đây bị lờ đi vì ta search toàn bộ (hoặc có thể dùng làm filter nếu muốn)
+    Giữ lại hàm cũ cho tương thích, nhưng bên trong dùng reason_and_route.
+    Trả về:
+      - Filter(source_table=...) nếu chọn 1 collection
+      - None nếu GLOBAL
     """
-    from qdrant_client import QdrantClient
     from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-    
-    try:
-        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
-        
-        # Search Global Collection
-        # Nếu muốn filter theo collection_name cụ thể (legacy support):
-        query_filter = None
-        if collection_name != "faq" and collection_name != "global":
-             # Nếu user (hoặc code cũ) yêu cầu đích danh 1 bảng, ta filter theo source_table
-             query_filter = Filter(
-                must=[FieldCondition(key="source_table", match=MatchValue(value=collection_name))]
-             )
+    if model_func is None:
+        # Không có model → coi như GLOBAL
+        return None
 
-        results = client.search(
-            collection_name=GLOBAL_COLLECTION,
-            query_vector=q_vec.tolist(),
-            limit=top_k,
-            query_filter=query_filter,
-            score_threshold=0.35 # Chỉ lấy kết quả tương đối liên quan
+    router_result = reason_and_route(question, q_vec, llm_func, model_func)
+
+    if router_result.mode == "COLLECTION" and router_result.target_collection:
+        return Filter(
+            must=[
+                FieldCondition(
+                    key="source_table",
+                    match=MatchValue(value=router_result.target_collection),
+                )
+            ]
         )
-        
-        candidates = []
-        for hit in results:
-            p = hit.payload
-            
-            # Format câu trả lời đẹp
-            source = p.get("source_table", "general").upper()
-            # context_parts = []
-            # Thay vì đoán tên cột (Hard-coded), ta đưa hết dữ liệu cho LLM (Semantic)
-            
-            # 1. Lọc bỏ các trường kỹ thuật
-            technical_fields = ["vector", "notion_id", "last_updated", "approved", "source_table"]
-            
-            # 2. Tạo context dạng Key-Value dễ đọc cho LLM
-            # Ví dụ: "mon_an: Phở; gia: 30k; mo_ta: Ngon"
-            data_items = []
-            for k, v in p.items():
-                if k not in technical_fields and v:
-                     data_items.append(f"{k}: {v}")
-            
-            final_content = " | ".join(data_items)
-            
-            # Xác định context cho LLM
-            question_context = p.get("question") or p.get("title") or p.get("name") or "Thông tin chi tiết"
-            
-            candidates.append({
-                "score": hit.score,
-                "question": f"[{source}] {question_context}", # Gắn nhãn nguồn vào
-                "answer": final_content,
-                "category": source,
-                "id": hit.id
-            })
-            
-        return candidates
-    
-    except Exception as e:
-        print(f"⚠ Search Error: {e}")
-        # Thử fallback về collection lẻ nếu chưa migration xong (Backward Compatibility)
-        try:
-            return search_legacy_fallback(collection_name, q_vec, top_k)
-        except:
-            return []
+    else:
+        return None
 
-def search_legacy_fallback(collection_name, q_vec, top_k):
-    """Hỗ trợ code cũ trong lúc chờ migration"""
-    # ... (Giữ logic cũ nếu cần, nhưng tốt nhất là ép user migration)
+
+# ============================================
+#  SEARCH DYNAMIC
+# ============================================
+
+def search_dynamic(
+    collection_name: str, q_vec: np.ndarray, top_k: int = 10
+) -> List[Dict]:
+    """
+    Search vào Qdrant bằng HTTP API trực tiếp (không dùng client.search)
+    - Global collection: GLOBAL_COLLECTION
+    - Nếu collection_name != 'faq' và != 'global' -> filter theo source_table
+    """
+    import requests
+    import json
+
+    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
+    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
+    url = f"{QDRANT_URL}/collections/{GLOBAL_COLLECTION}/points/search"
+
+    # Body query gửi lên Qdrant
+    body: Dict = {
+        "vector": q_vec.tolist(),
+        "limit": top_k,
+        "with_payload": True,
+        "with_vector": False,
+        "score_threshold": 0.35,
+    }
+
+    # Filter theo collection_name nếu không phải global
+    if collection_name and collection_name not in ("faq", "global"):
+        body["filter"] = {
+            "must": [
+                {
+                    "key": "source_table",
+                    "match": {"value": collection_name},
+                }
+            ]
+        }
+
+    headers = {"Content-Type": "application/json"}
+    if QDRANT_API_KEY:
+        headers["api-key"] = QDRANT_API_KEY
+
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        hits = data.get("result", [])
+
+        candidates: List[Dict] = []
+
+        for hit in hits:
+            score = hit.get("score", 0.0)
+            payload = hit.get("payload") or {}
+
+            source = (payload.get("source_table") or "general").upper()
+
+            technical_fields = [
+                "vector",
+                "notion_id",
+                "last_updated",
+                "approved",
+                "source_table",
+            ]
+
+            data_items = []
+            for k, v in payload.items():
+                if k not in technical_fields and v not in (None, ""):
+                    data_items.append(f"{k}: {v}")
+
+            final_content = " | ".join(data_items)
+
+            question_context = (
+                payload.get("question")
+                or payload.get("title")
+                or payload.get("name")
+                or "Thông tin chi tiết"
+            )
+
+            candidates.append(
+                {
+                    "score": score,
+                    "question": f"[{source}] {question_context}",
+                    "answer": final_content,
+                    "category": source,
+                    "id": hit.get("id"),
+                }
+            )
+
+        return candidates
+
+    except Exception as e:
+        print(f"⚠ Search Error (HTTP): {e}")
+        return []
+
+
+
+def search_legacy_fallback(
+    collection_name: str, q_vec: np.ndarray, top_k: int
+) -> List[Dict]:
+    """
+    Hỗ trợ code cũ trong lúc chờ migration.
+    Hiện tại không dùng nữa → trả [].
+    """
     return []
 
+
 def trigger_config_reload():
-    return get_collections_with_descriptions()  
+    """
+    Reload lại cấu hình collections_config từ SQLite
+    """
+    return get_collections_with_descriptions()

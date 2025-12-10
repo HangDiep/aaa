@@ -161,80 +161,13 @@ def get_qdrant_client():
 # ============================================
 #  ROUTER - TỐI ƯU HÓA
 # ============================================
-def auto_route_by_embedding(q_vec: np.ndarray) -> str:
-    """Fallback routing bằng embedding"""
-    best_type = "FAQ"
-    best_score = -1.0
-    client = get_qdrant_client()
-
-    try:
-        # ✅ Chỉ query limit=1 thay vì nhiều
-        faq_results = client.query_points("faq", query=q_vec.tolist(), limit=1).points
-        if faq_results:
-            best_type, best_score = "FAQ", faq_results[0].score
-
-        book_results = client.query_points("books", query=q_vec.tolist(), limit=1).points
-        if book_results and book_results[0].score > best_score:
-            best_type, best_score = "BOOKS", book_results[0].score
-
-        major_results = client.query_points("majors", query=q_vec.tolist(), limit=1).points
-        if major_results and major_results[0].score > best_score:
-            best_type, best_score = "MAJORS", major_results[0].score
-    except Exception as e:
-        print(f"⚠ Lỗi auto_route_by_embedding: {e}")
-
-    return best_type
 
 def is_greeting(text: str) -> bool:
     t = text.lower().strip()
     greet_words = ["xin chào", "chào bạn", "chào ad", "hello", "hi", "alo"]
     return any(w in t for w in greet_words)
 
-def route_llm(question: str, q_vec: np.ndarray) -> str:
-    """Router với LLM + Embedding fallback"""
-    if is_greeting(question) and len(question.split()) <= 4:
-        print("[ROUTER] Detected GREETING")
-        return "GREETING"
 
-    prompt = f"""
-Phân loại câu hỏi vào 1 trong 3 nhóm dựa trên BẢN CHẤT:
-
-1. BOOKS (Sách & Tài liệu):
-   - Chỉ chọn khi người dùng tìm kiếm TÀI LIỆU, SÁCH, GIÁO TRÌNH, LUẬN VĂN cụ thể.
-   - Ví dụ: "Tìm sách Python", "Giáo trình Kinh tế lượng", "Tài liệu về AI".
-
-2. MAJORS (Ngành học & Đào tạo):
-   - Chỉ chọn khi người dùng hỏi về CHƯƠNG TRÌNH ĐÀO TẠO, TUYỂN SINH, KHOA/VIỆN.
-   - Ví dụ: "Ngành CNTT học gì", "Mã ngành 7480201", "Khoa Luật ở đâu".
-
-3. FAQ (Thông tin chung & Khác):
-   - TẤT CẢ các câu hỏi còn lại.
-   - Bao gồm: Quy định, Thủ tục, Giờ làm việc, Wifi, Tài khoản.
-   - Bao gồm: CƠ SỞ VẬT CHẤT, ĐỊA ĐIỂM (Phòng ốc, Canteen, Bãi xe...), SỰ KIỆN.
-   - Bao gồm: SỐ LƯỢNG, THỐNG KÊ (Tổng số sách, Có bao nhiêu tài liệu...).
-
-LƯU Ý ƯU TIÊN:
-- Hỏi về "Tổng số lượng", "Thống kê", "Có bao nhiêu" -> CHỌN FAQ (kể cả có từ "sách").
-- Hỏi về "Ở đâu", "Phòng nào", "Tầng mấy" (Vị trí) -> CHỌN FAQ (kể cả có từ "sách").
-- Nếu câu hỏi không rõ ràng -> CHỌN FAQ.
-
-Câu hỏi: "{question}"
-
-Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
-"""
-    out = llm(prompt, temp=0.05, n=10).upper().strip()
-    clean_out = re.sub(r'[^A-Z]', '', out)
-
-    print(f"[ROUTER LLM] Output: '{out}' -> Clean: '{clean_out}'")
-
-    if clean_out in ["FAQ", "BOOKS", "MAJORS"]:
-        print(f"[ROUTER] ✅ LLM chọn: {clean_out}")
-        return clean_out
-
-    print(f"[ROUTER] ⚠️ LLM không chắc chắn -> Dùng auto_route_by_embedding...")
-    fallback_route = auto_route_by_embedding(q_vec)
-    print(f"[ROUTER] -> Vector (DB) chọn: {fallback_route}")
-    return fallback_route
 
 # ============================================
 #  REWRITE - TỐI ƯU HÓA
@@ -261,96 +194,6 @@ Câu viết lại (chỉ viết 1 câu duy nhất):
 """
     out = llm(prompt, temp=0.1, n=64)
     return out.strip() if out else q
-
-# ============================================
-#  SEARCH - TỐI ƯU HÓA
-# ============================================
-def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None):
-    """✅ Giảm top_k từ 20 xuống 10"""
-    client = get_qdrant_client()
-    try:
-        results = client.query_points(
-            collection_name="faq",
-            query=q_vec.tolist(),
-            limit=top_k,
-            score_threshold=0.08
-        ).points
-        
-        candidates = []
-        for hit in results:
-            payload = hit.payload
-            score = hit.score
-            
-            if filter_category and filter_category not in ["FAQ", "BOOKS", "MAJORS", "GREETING"]:
-                if payload.get("category") != filter_category:
-                    continue
-            
-            candidates.append({
-                "score": score,
-                "question": payload.get("question", ""),
-                "answer": payload.get("answer", ""),
-                "category": payload.get("category", ""),
-                "id": hit.id
-            })
-        return candidates
-    except Exception as e:
-        print(f"⚠ Lỗi query Qdrant FAQ: {e}")
-        return []
-
-def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
-    """✅ Giảm top_k từ 15 xuống 10"""
-    client = get_qdrant_client()
-    try:
-        if table == "BOOKS":
-            results = client.query_points(
-                collection_name="books",
-                query=q_vec.tolist(),
-                limit=top_k,
-                score_threshold=0.15
-            ).points
-            
-            candidates = []
-            for hit in results:
-                p = hit.payload
-                content = (
-                    f"Sách: {p.get('name')}. Tác giả: {p.get('author')}. Năm: {p.get('year')}. "
-                    f"Số lượng: {p.get('quantity')}. Tình trạng: {p.get('status')}. Ngành: {p.get('major', 'Chung')}"
-                )
-                candidates.append({
-                    "score": hit.score,
-                    "question": "",
-                    "answer": content,
-                    "category": "BOOKS",
-                    "id": hit.id
-                })
-            return candidates
-        
-        elif table == "MAJORS":
-            results = client.query_points(
-                collection_name="majors",
-                query=q_vec.tolist(),
-                limit=top_k,
-                score_threshold=0.20
-            ).points
-            
-            candidates = []
-            for hit in results:
-                p = hit.payload
-                content = f"Ngành: {p.get('name')}. Mã ngành: {p.get('major_id')}. Mô tả: {p.get('description', 'Đang cập nhật')}"
-                candidates.append({
-                    "score": hit.score,
-                    "question": "",
-                    "answer": content,
-                    "category": "MAJORS",
-                    "id": hit.id
-                })
-            return candidates
-        
-        return []
-    except Exception as e:
-        print(f"⚠ Lỗi query Qdrant {table}: {e}")
-        return []
-
 # ============================================
 #  RERANK - TỐI ƯU HÓA
 # ============================================
@@ -470,105 +313,112 @@ Trả lời (NGẮN GỌN):
 # ============================================
 def process_message(text: str) -> str:
     """
-    ✅ DYNAMIC VERSION - Hỗ trợ bất kỳ collection nào
-    - Tự động load collections từ collections_config
-    - Router động (Vector + LLM Hybrid)
-    - Search động cho mọi collection
+    DYNAMIC VERSION + Multi-step Reasoning
+    - Router ngữ nghĩa (Vector + LLM CoT)
+    - Clarification (hỏi lại khi mơ hồ)
+    - Search theo collection
+    - Humanize answer (chỉ học từ CÂU TRẢ LỜI)
     """
-    print("[CHAT.PY] ĐÃ GỌI NÃO (Dynamic Mode)")
+    print("[CHAT.PY] ĐÃ GỌI NÃO (Dynamic Reasoning Mode)")
+
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
 
     try:
-        # Import dynamic tools
-        from chat_dynamic_router import route_llm_dynamic, search_dynamic, get_collections_with_descriptions, trigger_config_reload, GLOBAL_COLLECTION
-        
+        # Import dynamic tools (đã sửa ở trên)
+        from chat_dynamic_router import (
+            reason_and_route,
+            search_dynamic,
+            get_collections_with_descriptions,
+            humanize_answer,
+            GLOBAL_COLLECTION,
+        )
+
         # ✅ Lấy model (lazy load)
         model = get_model()
-        
+
         # B0: Tạo vector 1 lần duy nhất
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
 
-        # B1: Check greeting (Vẫn giữ rule greeting đơn giản)
+        # B1: Greeting
         if is_greeting(text) and len(text.split()) <= 4:
             collections = get_collections_with_descriptions()
-            # Dynamic Greeting: Liệt kê top 3 chủ đề đang có
-            collection_names = ', '.join([n.upper() for n in list(collections.keys())[:3]])
-            return f"Xin chào! Tôi là trợ lý ảo. Bạn có thể hỏi về: {collection_names} hoặc bất cứ thông tin nào khác..."
+            collection_names = ", ".join(
+                [n.upper() for n in list(collections.keys())[:3]]
+            )
+            return (
+                f"Xin chào! Tôi là trợ lý ảo. Bạn có thể hỏi về: "
+                f"{collection_names} hoặc bất cứ thông tin nào khác..."
+            )
 
-        # B2: Dynamic Router (Hybrid: Vector First -> LLM Fallback)
-        # Hàm này trả về Qdrant Filter hoặc None (Search All)
-        search_filter = route_llm_dynamic(text, q_vec, llm, model)
-        
-        # Log để debug
-        if search_filter:
-            print(f"[PROCESS] Filter active: {search_filter}")
-        else:
-            print(f"[PROCESS] Search Mode: GLOBAL (No Filter)")
+        # B2: Multi-step Reasoning Router (CoT + Clarification)
+        router_result = reason_and_route(text, q_vec, llm, model)
 
-        # B3: Rewrite câu hỏi (Giúp search chuẩn hơn)
-        rewritten = rewrite_question(text)
-        
-        # ✅ Chỉ tạo vector mới nếu rewritten khác text
-        if rewritten != text:
-            q_vec_search = model.encode(normalize(rewritten), normalize_embeddings=True)
-        else:
-            q_vec_search = q_vec
+        # Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)
+        if router_result.needs_clarification and router_result.clarification_question:
+            print("[PROCESS] Clarification required → hỏi lại người dùng.")
+            return router_result.clarification_question
 
-        # B4: Dynamic Search - Query vào Knowledge Base (Single Collection)
-        # Lưu ý: search_dynamic sẽ tự dùng GLOBAL_COLLECTION và apply filter
-        candidates = search_dynamic("unused_param", q_vec_search, top_k=10)
-        
+        # B3: Lấy câu hỏi đã làm rõ (rewritten_question)
+        rewritten = router_result.rewritten_question or text
+
+        # Tùy chọn: nếu bạn vẫn muốn thêm lớp rewrite_question cũ
+        # rewritten2 = rewrite_question(rewritten)
+        # if rewritten2: rewritten = rewritten2
+
+        # B4: Embed lại cho search
+        q_vec_search = model.encode(
+            normalize(rewritten), normalize_embeddings=True
+        )
+
+        # B5: Search vào knowledge_base, filter theo collection nếu có
+        collection_name = router_result.target_collection or "global"
+        print(f"[PROCESS] Search in collection: {collection_name}")
+        candidates = search_dynamic(collection_name, q_vec_search, top_k=10)
+
         if not candidates:
-            print(f"[DEBUG] ❌ Không tìm thấy kết quả nào.")
-            # Fallback: Nếu filter quá chặt, thử thả lỏng search all lần cuối
-            if search_filter:
-                 print(f"[DEBUG] 🔄 Thử Search All (bỏ filter)...")
-                 # Gọi lại search_dynamic mà không thông qua router logic (hoặc sửa search_dynamic để nhận filter optional)
-                 # Hiện tại search_dynamic trong chat_dynamic_router đã được tối ưu để nhận filter từ bên trong, 
-                 # nhưng ta cần truyền filter vào nó. 
-                 # ĐỂ ĐƠN GIẢN: search_dynamic hiện tại đang tự build filter dựa trên `collection_name` text.
-                 # TA SẼ CẦN SỬA chat_dynamic_router để nhận object Filter trực tiếp thì tốt hơn.
-                 # NHƯNG ĐỂ KHÔNG SỬA NHIỀU FILE: Ta dùng cơ chế đã thống nhất: 
-                 # Router trả về None -> Search All.
-                 # Nếu Router trả về Filter -> Search with Filter.
-                 pass
-            
+            print("[DEBUG] ❌ Không tìm thấy kết quả nào.")
             return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
 
         print(f"[DEBUG] Found {len(candidates)} candidates.")
         for c in candidates:
-            print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
+            print(
+                f"  - [{c['score']:.4f}] {c['answer'][:80]}... (Cat: {c['category']})"
+            )
 
-        # B5: Rerank với LLM (Chọn câu trả lời tốt nhất trong đám candidates)
+        # B6: Rerank với LLM (Chọn câu trả lời phù hợp nhất)
         best_cand = rerank_with_llm(rewritten, candidates)
-        
+
         if not best_cand:
-            # Nếu LLM chê hết, nhưng Top 1 score vẫn cao -> Lấy Top 1 (Trust Vector)
-            if candidates and candidates[0]['score'] > 0.35: 
-                 best_cand = candidates[0]
-                 print("[DEBUG] ⚠️ Rerank từ chối, nhưng lấy Top 1 do score ổn.")
+            if candidates and candidates[0]["score"] > 0.35:
+                best_cand = candidates[0]
+                print(
+                    "[DEBUG] ⚠️ Rerank từ chối, nhưng lấy Top 1 do score ổn."
+                )
             else:
                 print("[DEBUG] ❌ Rerank từ chối tất cả.")
-                return "Xin lỗi, tôi tìm thấy một số thông tin nhưng có vẻ không khớp với câu hỏi của bạn."
+                return (
+                    "Xin lỗi, tôi tìm thấy một số thông tin nhưng có vẻ không khớp với câu hỏi của bạn."
+                )
         else:
-            print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
+            print(
+                f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:80]}..."
+            )
 
-        # B6: Generate answer (Viết câu trả lời cuối cùng)
-        # Truyền cả Category nguồn vào để LLM biết ngữ cảnh
-        knowledge_context = f"[{best_cand['category']}] {best_cand['answer']}"
-        final_ans = strict_answer(rewritten, knowledge_context)
+        # B7: HUMANIZE ANSWER (chỉ học từ CÂU TRẢ LỜI)
+        raw_answer = best_cand["answer"]
+        final_ans = humanize_answer(text, raw_answer)
         return final_ans
-    
+
     except Exception as e:
         print(f"[PROCESS] ❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return "Xin lỗi, hệ thống đang gặp lỗi xử lý. Vui lòng thử lại sau."
-    
+
     finally:
-        # ✅ Cleanup sau mỗi request
         gc.collect()
         cleanup_model_if_idle()
 
