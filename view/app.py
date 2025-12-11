@@ -6,7 +6,11 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
 from fastapi.responses import HTMLResponse
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from chat_fixed import process_message
+
 
 import os
 import uuid

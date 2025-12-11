@@ -17,13 +17,13 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-FAQ_DB_PATH = r"D:\HTML\a - Copy\faq.db"
+FAQ_DB_PATH = r"D:\HTML\a_Copy\faq.db"
 
 # ==== NEW: cấu hình Gemini ====
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # Load .env (ưu tiên file trong thư mục rag như chat_fixed.py)
-ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)

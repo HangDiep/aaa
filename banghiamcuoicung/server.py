@@ -36,61 +36,69 @@ model = WhisperModel("tiny", device="cpu", compute_type="int8")
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+
     buffer = b""
+    last_time = None
 
-    try:
-        while True:
+    import time, json
+
+    SILENCE_GAP = 0.55     # user ngừng nói 0.55s
+    MIN_SIZE = 4000        # tối thiểu dữ liệu
+    MAX_SIZE = 150000      # tránh tràn bộ nhớ
+
+    while True:
+        try:
             data = await websocket.receive_text()
-            audio_chunk = base64.b64decode(data)
-            buffer += audio_chunk
+            chunk = base64.b64decode(data)
+            buffer += chunk
 
-            # đủ dữ liệu rồi thì xử lý
-            if len(buffer) > 80000:
+            now = time.time()
+            if last_time is None:
+                last_time = now
+
+            # Nếu user im lặng → xử lý
+            if now - last_time > SILENCE_GAP and len(buffer) > MIN_SIZE:
+
                 try:
                     audio = AudioSegment.from_file(io.BytesIO(buffer), format="webm")
                     audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
 
                     samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-                    if audio.channels > 1:
-                        samples = samples[::audio.channels]
                     samples /= 32768.0
 
                     segments, _ = model.transcribe(samples, language="vi", vad_filter=True)
                     text = "".join(seg.text for seg in segments).strip()
 
                     if text:
-                        print("🎤 Câu nói:", text)
+                        print("🎤 User:", text)
+                        answer = process_message(text)
 
-                        try:
-                            answer = process_message(text)
-                        except Exception as e:
-                            print("Lỗi chatbot:", e)
-                            answer = "Hiện tại chatbot gặp lỗi."
-
-                        import json
-
-                        # Gửi tin nhắn của user
+                        # gửi text user
                         await websocket.send_text(json.dumps({
                             "sender": "user",
                             "text": text
                         }, ensure_ascii=False))
 
-                        # Gửi tin nhắn của bot
+                        # gửi text bot
                         await websocket.send_text(json.dumps({
                             "sender": "bot",
                             "text": answer
                         }, ensure_ascii=False))
 
-
-                    buffer = b""
-
                 except Exception as e:
                     print("Lỗi decode:", e)
-                    buffer = b""
 
-    except:
-        print("WebSocket đóng.")
-        pass
+                buffer = b""
+
+            if len(buffer) > MAX_SIZE:
+                buffer = b""
+
+            last_time = now
+
+        except Exception:
+            print("WebSocket đóng")
+            break
+
 
 # chạy:
 # uvicorn server:app --reload
