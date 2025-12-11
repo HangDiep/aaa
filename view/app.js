@@ -107,16 +107,25 @@ async function send() {
 
   let reply = "";
 
+  // CHAT + OCR
   try {
-    const fd = new FormData();
-    fd.append("message", text);
+      const fd = new FormData();
+      fd.append("message", text);
 
-    const res = await fetch(CHAT_API_URL, { method: "POST", body: fd });
-    const data = await safeParse(res);
-    reply = data.answer;
-  } catch (err) {
-    reply = "Không gọi được API: " + err.message;
+      const res = await fetch(CHAT_API_URL, {
+          method: "POST",
+          body: fd
+      });
+
+      const data = await safeParse(res);
+
+      // 🔥 FIX: backend trả {answer: "..."} hoặc {output: "..."}
+      reply = data.answer || data.output || "Không có phản hồi.";
+
+  } catch (e) {
+      reply = "Không gọi được API: " + e.message;
   }
+
 
   record.bot_reply = reply;
   persist();
@@ -185,20 +194,29 @@ function initWebSocket() {
   ws.onclose = () => console.log("WS closed");
 
   ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
+  const msg = JSON.parse(event.data);
 
-    const record = {
-      user_message: msg.sender === "user" ? msg.text : "",
-      bot_reply: msg.sender === "bot" ? msg.text : "",
-      time: formatTime()
-    };
+  if (msg.sender === "user") {
+      transcript.push({
+          user_message: msg.text,
+          bot_reply: "",
+          time: formatTime()
+      });
+  }
 
-    // Bot và user đến rời rạc nên ghép
-    transcript.push(record);
-    persist();
-    render();
-  };
+  if (msg.sender === "bot") {
+      transcript.push({
+          user_message: "",
+          bot_reply: msg.text,
+          time: formatTime()
+      });
+  }
+
+  persist();
+  render();
+};
 }
+
 
 initWebSocket();
 
