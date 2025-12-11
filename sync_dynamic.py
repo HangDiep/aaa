@@ -127,7 +127,7 @@ def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
     import requests
 
     # Load env
-    ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+    ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
     try:
         if os.path.exists(ENV_PATH):
             load_dotenv(ENV_PATH, override=True)
@@ -662,7 +662,7 @@ async def scan_new_databases():
     """
     import requests
 
-    ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+    ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
     try:
         if os.path.exists(ENV_PATH):
             from dotenv import load_dotenv

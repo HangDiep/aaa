@@ -22,7 +22,7 @@ try:
 except Exception:
     pass
 
-FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a - Copy\faq.db")
+FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a_Copy\faq.db")
 GLOBAL_COLLECTION = "knowledge_base"
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
