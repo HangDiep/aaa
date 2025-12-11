@@ -1,0 +1,5 @@
+curl -X POST "https://92e590c5-6cf5-4948-b79b-4980d8a2595b.us-east4-0.gcp.cloud.qdrant.io/collections/knowledge_base/points/scroll" \
+  -H "Content-Type: application/json" \
+  -H "api-key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.dCOTY8g6RULfsSxVoFKKyISXnrb7MRddpQcXgfjGLbg" \
+  -d '{"limit":200,"with_payload":true,"with_vector":false}'
+  lenh xem tren vector
