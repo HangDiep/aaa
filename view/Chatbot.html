@@ -1,44 +1,57 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Library Chatbot</title>
-  <link rel="stylesheet" href="/static/Chatbot.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chatbot Thư viện Đại học</title>
+
+  <!-- LINK CSS -->
+  <link rel="stylesheet" href="Chatbot.css">
 </head>
 <body>
-  <div class="app">
-    <header>
-      <h1 style="color:rgb(177, 29, 29)">TEST</h1>
-      <div class="dot" aria-hidden="true"></div>
-      <div>
-        <h1>Library Chatbot</h1>
-        <div class="sub">· TTN UNIVERSITY ·</div>
-      </div>
-      <div class="toolbar">
-        <button id="btnNew" class="btn btn-reset" title="Tạo mới đoạn chat"> ➕ Tạo mới</button>
-      </div>
-    </header>
 
-    <main id="chat" class="chat" aria-live="polite" aria-label="Khu vực hội thoại">
-      <div id="emptyState" class="empty">
-        <p>Chào bạn! Hãy bắt đầu trao đổi bằng cách nhập nội dung bên dưới.<br/>
-        Mẹo: Nhấn <span class="kbd">Enter</span> để gửi. <span class="kbd">Shift</span>+<span class="kbd">Enter</span> để xuống dòng.</p>
-      </div>
-    </main>
+  <!-- NÚT MỞ CHATBOT -->
+  <div class="chat-toggle" id="toggleBtn">💬</div>
 
-    <section class="composer">
-      <div class="input-wrapper">
-        <textarea id="input" placeholder="Gõ câu hỏi… (ví dụ: Thư viện mở cửa khi nào?)" spellcheck="true"></textarea>
-      </div>
-      <button id="send" class="send">Gửi</button>
-    </section>
+  <!-- WIDGET CHAT -->
+  <div class="chat-widget" id="chatWidget">
+    <div class="chat-header">
+      <h1>Thư viện Đại học</h1>
+      <div class="sub"><span class="status-dot"></span> Đang trực tuyến • Sẵn sàng hỗ trợ</div>
+    </div>
 
-    <div class="footer">
-      <div class="status"><span class="blink" aria-hidden="true"></span> Sẵn sàng — API: <span id="apiStatus">offline</span></div>
+    <div class="chat-body" id="chatBody">
+      <div class="welcome">
+        <p class="big">Xin chào! 👋</p>
+        <p>Mình có thể giúp gì cho bạn hôm nay?</p>
+
+        <div class="quick-replies">
+          <div class="quick-chip" data-text="Giờ mở cửa thư viện?">Giờ mở cửa</div>
+          <div class="quick-chip" data-text="Quy định mượn sách?">Mượn sách</div>
+          <div class="quick-chip" data-text="Cách tìm giáo trình?">Tìm giáo trình</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT -->
+    <div class="chat-input">
+      <div class="preview" id="preview"></div>
+
+      <div class="input-tools">
+        <button class="tool-btn" id="attachBtn">📎</button>
+        <button class="tool-btn" id="cameraBtn">📷</button>
+        <button class="tool-btn" id="micBtn">🎤</button>
+
+        <input type="file" id="fileInput" accept="image/*" hidden>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+        <textarea id="messageInput" placeholder="Nhập tin nhắn..." rows="1"></textarea>
+        <button class="tool-btn send-btn" id="sendBtn">➤</button>
+      </div>
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- LINK JS -->
+  <script src="app.js"></script>
 </body>
 </html>
