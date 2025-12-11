@@ -11,12 +11,17 @@ const chat = document.getElementById("chat");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const emptyState = document.getElementById("emptyState");
+<<<<<<< HEAD
 const btnExport = document.getElementById("btnExport");
 const btnClear = document.getElementById("btnClear");
 // THÊM 3 DÒNG NÀY – QUAN TRỌNG NHẤT
 const imageInput = document.getElementById("imageInput");          // input file thật
 const pickImageBtn = document.getElementById("pickImage");         // nút bấm
 const imagePreview = document.getElementById("imagePreview");      // vùng preview
+=======
+const btnExport  = document.getElementById("btnExport");
+const btnNew     = document.getElementById("btnNew");
+>>>>>>> Moon
 
 const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
 let sending = false;
@@ -36,11 +41,12 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function msgTemplate(role, text, time) {
+  const content = role === "bot" ? (text || "") : escapeHtml(text || "").replace(/\n/g, "<br/>");
   return `
     <article class="msg ${role}">
       <div class="avatar" aria-hidden="true">${role === "bot" ? "🤖" : "🧑"}</div>
       <div>
-        <div class="bubble">${escapeHtml(text || "").replace(/\n/g, "<br/>")}</div>
+        <div class="bubble">${content}</div>
         <div class="meta">${role === "bot" ? "Bot" : "Bạn"} · ${time || formatTime()}</div>
       </div>
     </article>`;
@@ -98,7 +104,16 @@ async function send() {
   if (imageInput) imageInput.value = "";
   if (imagePreview) imagePreview.innerHTML = "";  // Xóa preview sau khi gửi
   const now = new Date();
+<<<<<<< HEAD
   const record = { user_message: text || "[Ảnh]", bot_reply: "…", time: formatTime(now) };
+=======
+  const record = { user_message: text, bot_reply: `
+  <span class="typing">
+    <span>.</span>
+    <span>.</span>
+    <span>.</span>
+  </span>`, time: formatTime(now) };
+>>>>>>> Moon
   transcript.push(record);
   persist();
   render();
@@ -168,11 +183,19 @@ if (btnExport) {
     URL.revokeObjectURL(url);
   });
 }
+<<<<<<< HEAD
 if (btnClear) {
   btnClear.addEventListener("click", () => {
     if (confirm("Xóa toàn bộ phiên chat hiện tại?")) {
       transcript.splice(0, transcript.length);
       persist();
+=======
+
+if (btnNew) {
+  btnNew.addEventListener("click", () => {
+    if (confirm("Bắt đầu phiên chat mới?")) {
+      transcript.length = 0;
+>>>>>>> Moon
       render();
     }
   });
