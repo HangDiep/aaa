@@ -1,145 +1,268 @@
-const CHAT_API_URL = "/chat";
+// =============================
+// Config
+// =============================
+const CHAT_API_URL = localStorage.getItem("CHAT_API_URL") || "/chat";
 
-const toggleBtn = document.getElementById("toggleBtn");
-const widget = document.getElementById("chatWidget");
-const chatBody = document.getElementById("chatBody");
-const input = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-const fileInput = document.getElementById("fileInput");
-const cameraInput = document.getElementById("cameraInput");
-const attachBtn = document.getElementById("attachBtn");
-const cameraBtn = document.getElementById("cameraBtn");
-const micBtn = document.getElementById("micBtn");
-const preview = document.getElementById("preview");
+const apiStatusEl = document.getElementById("apiStatus");
+if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
 
-let mediaRecorder;
-let audioChunks = [];
+// =============================
+// State
+// =============================
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const emptyState = document.getElementById("emptyState");
+const btnExport = document.getElementById("btnExport");
+const btnNew = document.getElementById("btnNew");
 
-/* ----- TOGGLE ----- */
-toggleBtn.onclick = () => widget.classList.toggle("open");
+const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
+let sending = false;
 
-/* ----- QUICK CHIP ----- */
-document.querySelectorAll(".quick-chip").forEach(chip => {
-  chip.onclick = () => {
-    input.value = chip.dataset.text;
-    input.focus();
-  };
-});
-
-/* ========== IMAGE UPLOAD ========== */
-attachBtn.onclick = () => fileInput.click();
-fileInput.onchange = e => handleFile(e.target.files[0]);
-
-cameraBtn.onclick = () => cameraInput.click();
-cameraInput.onchange = e => handleFile(e.target.files[0]);
-
-function handleFile(file) {
-  if (!file) return;
-
-  const url = URL.createObjectURL(file);
-  preview.innerHTML = `
-    <div>Đã chọn: <strong>${file.name}</strong></div>
-    <img src="${url}">
-    <div onclick="clearPreview()" style="margin-top:6px;cursor:pointer;">Hủy</div>
-  `;
-  preview.file = file;
+// =============================
+// Utils
+// =============================
+function formatTime(d = new Date()) {
+  return d.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 }
 
-window.clearPreview = () => {
-  preview.innerHTML = "";
-  preview.file = null;
-  preview.audioBlob = null;
-  fileInput.value = cameraInput.value = "";
-};
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[c]));
+}
 
-/* ========== AUDIO RECORDING ========== */
-micBtn.onclick = async () => {
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    mediaRecorder.stop();
-    micBtn.classList.remove("active");
-    return;
+function msgTemplate(role, text, time) {
+  const content = role === "bot" ? (text || "") : escapeHtml(text || "").replace(/\n/g, "<br/>");
+  return `
+    <article class="msg ${role}">
+      <div class="avatar">${role === "bot" ? "🤖" : "🧑"}</div>
+      <div>
+        <div class="bubble">${content}</div>
+        <div class="meta">${role === "bot" ? "Bot" : "Bạn"} · ${time || formatTime()}</div>
+      </div>
+    </article>`;
+}
+
+function render() {
+  chat.innerHTML = "";
+  if (!transcript.length) {
+    chat.appendChild(emptyState);
+  } else {
+    transcript.forEach((row) => {
+      chat.insertAdjacentHTML("beforeend", msgTemplate("user", row.user_message, row.time));
+      chat.insertAdjacentHTML("beforeend", msgTemplate("bot", row.bot_reply, row.time));
+    });
   }
+  chat.scrollTop = chat.scrollHeight;
+}
 
+function persist() {
+  localStorage.setItem("chat_transcript", JSON.stringify(transcript));
+}
+
+async function safeParse(res) {
+  const txt = await res.text();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(audioChunks, { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-
-      preview.innerHTML = `
-        <div>Đã ghi âm</div>
-        <audio controls src="${url}"></audio>
-        <div onclick="clearPreview()" style="cursor:pointer;margin-top:6px;">Hủy</div>
-      `;
-      preview.audioBlob = blob;
-
-      stream.getTracks().forEach(t => t.stop());
-    };
-
-    mediaRecorder.start();
-    micBtn.classList.add("active");
-  } catch (err) {
-    alert("Không thể mở micro: " + err.message);
+    return JSON.parse(txt);
+  } catch {
+    return { answer: txt };
   }
-};
+}
 
-/* ========== SEND MESSAGE ========== */
-async function sendMessage() {
-  let text = input.value.trim();
-  const img = preview.file;
-  const audio = preview.audioBlob;
+// =============================
+// Send logic
+// =============================
+async function send() {
+  if (sending) return;
 
-  if (!text && !img && !audio) return;
+  const text = input.value.trim();
+  if (!text) return;
 
-  addMessage("user", text || (img ? "📷 Đã gửi ảnh" : "🎤 Đã gửi ghi âm"), img ? URL.createObjectURL(img) : null);
-
+  sending = true;
+  sendBtn.disabled = true;
+  sendBtn.textContent = "Đang gửi...";
   input.value = "";
-  clearPreview();
 
-  const typing = document.createElement("div");
-  typing.className = "message bot";
-  typing.innerHTML = `<div class="bubble"><div>Đang soạn...</div></div>`;
-  chatBody.appendChild(typing);
-  chatBody.scrollTop = chatBody.scrollHeight;
+  const now = new Date();
+  const record = {
+    user_message: text,
+    bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`,
+    time: formatTime(now)
+  };
 
-  const form = new FormData();
-  form.append("message", text);
-  if (img) form.append("image", img);
-  if (audio) form.append("audio", audio, "voice.webm");
+  transcript.push(record);
+  persist();
+  render();
+
+  let reply = "";
 
   try {
-    const res = await fetch(CHAT_API_URL, { method: "POST", body: form });
-    const data = await res.json();
-    typing.remove();
-    addMessage("bot", data.answer || "Bot chưa phản hồi.");
+    const fd = new FormData();
+    fd.append("message", text);
+
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      body: fd
+    });
+
+    const data = await safeParse(res);
+    reply = data.answer;
   } catch (err) {
-    typing.remove();
-    addMessage("bot", "Không thể kết nối server.");
+    reply = "Không gọi được API: " + err.message;
   }
+
+  record.bot_reply = reply || "Xin lỗi, mình chưa hiểu.";
+  persist();
+  render();
+
+  sending = false;
+  sendBtn.disabled = false;
+  sendBtn.textContent = "Gửi";
 }
 
-function addMessage(sender, text, imgUrl) {
-  const div = document.createElement("div");
-  div.className = `message ${sender}`;
-  
-  let html = `<div class="bubble">${text.replace(/\n/g, "<br>")}`;
-  if (imgUrl) html += `<img src="${imgUrl}">`;
-  html += `</div>`;
+if (sendBtn) sendBtn.addEventListener("click", send);
 
-  div.innerHTML = html;
-  chatBody.appendChild(div);
-  chatBody.scrollTop = chatBody.scrollHeight;
-}
-
-sendBtn.onclick = sendMessage;
-
-input.addEventListener("keydown", e => {
+input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    sendMessage();
+    send();
   }
 });
+
+// =============================
+// OCR logic
+// =============================
+const btnOCR = document.getElementById("btnOCR");
+const ocrInput = document.getElementById("ocrInput");
+
+btnOCR.addEventListener("click", () => ocrInput.click());
+
+ocrInput.addEventListener("change", async () => {
+  const file = ocrInput.files[0];
+  if (!file) return;
+
+  const record = {
+    user_message: "[Ảnh gửi lên để OCR]",
+    bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`,
+    time: formatTime()
+  };
+  transcript.push(record);
+  render();
+  persist();
+
+  const fd = new FormData();
+  fd.append("image", file);
+
+  let reply = "";
+
+  try {
+    const res = await fetch(CHAT_API_URL + "/ocr", { method: "POST", body: fd });
+    const data = await safeParse(res);
+    reply = data.answer;
+  } catch (e) {
+    reply = "Lỗi OCR: " + e.message;
+  }
+
+  record.bot_reply = reply || "Không đọc được văn bản.";
+  persist();
+  render();
+});
+
+// =============================
+// Voice Recording logic
+// =============================
+let mediaRecorder = null;
+let audioChunks = [];
+const btnRecord = document.getElementById("btnRecord");
+
+btnRecord.addEventListener("click", async () => {
+  if (!mediaRecorder) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+      audioChunks = [];
+
+      const record = {
+        user_message: "[Ghi âm gửi lên]",
+        bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`,
+        time: formatTime()
+      };
+      transcript.push(record);
+      render();
+      persist();
+
+      const fd = new FormData();
+      fd.append("audio", audioBlob, "voice.webm");
+
+      let reply = "";
+      try {
+        const res = await fetch(CHAT_API_URL + "/speech", {
+          method: "POST",
+          body: fd
+        });
+        const data = await safeParse(res);
+        reply = data.answer;
+      } catch (e) {
+        reply = "Lỗi giọng nói: " + e.message;
+      }
+
+      record.bot_reply = reply || "Không nhận diện được giọng nói.";
+      persist();
+      render();
+    };
+  }
+
+  if (mediaRecorder.state === "inactive") {
+    mediaRecorder.start();
+    btnRecord.textContent = "⏹ Dừng";
+    btnRecord.classList.add("recording");
+  } else {
+    mediaRecorder.stop();
+    btnRecord.textContent = "🎤 Ghi âm";
+    btnRecord.classList.remove("recording");
+  }
+});
+
+// =============================
+// Export & New
+// =============================
+btnExport.addEventListener("click", () => {
+  const payload = transcript.map((r) => ({
+    user_message: r.user_message,
+    bot_reply: r.bot_reply,
+    time: r.time
+  }));
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `chat_transcript_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+btnNew.addEventListener("click", () => {
+  if (confirm("Bắt đầu phiên chat mới?")) {
+    transcript.length = 0;
+    persist();
+    render();
+  }
+});
+
+// Init
+render();
