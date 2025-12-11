@@ -10,15 +10,13 @@ from datetime import datetime
 import chat
 import requests 
 from fastapi.responses import PlainTextResponse
-from fastapi import FastAPI, Request
-from sync_n8n_to_sqlite import router as sync_router  # Import sync router
+from fastapi import FastAPI, Request  # Import sync router
 from sync_dynamic import router as dynamic_router  # Import dynamic sync router
 
 app = FastAPI()
 
 # Include sync endpoints từ sync_n8n_to_sqlite.py
-app.include_router(sync_router)
-print("✅ Sync endpoints included: /notion/faq, /notion/book, /notion/major")
+
 
 # Include dynamic sync endpoints từ sync_dynamic.py
 app.include_router(dynamic_router)

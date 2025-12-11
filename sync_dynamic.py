@@ -14,9 +14,8 @@ import subprocess
 
 # Get absolute path to database
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.getenv("FAQ_DB_PATH", os.path.join(BASE_DIR, "faq.db"))
+DB_PATH = os.path.join(BASE_DIR, "faq.db")
 print(f"[DYNAMIC SYNC] Using database: {DB_PATH}")
-
 # Tạo router
 router = APIRouter(prefix="/notion/dynamic", tags=["notion-dynamic-sync"])
 
@@ -858,3 +857,30 @@ async def scan_new_databases():
     except Exception as e:
         print(f"❌ Scan Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def cleanup_deleted_tables_in_sqlite(valid_tables):
+    """
+    Xóa các bảng trong collections_config mà không còn tồn tại trên Notion.
+    valid_tables: danh sách các bảng hiện có (được sync thành công).
+    """
+    try:
+        conn = sqlite3.connect("faq.db")
+        cur = conn.cursor()
+
+        cur.execute("SELECT name FROM collections_config")
+        existing = [row[0] for row in cur.fetchall()]
+
+        to_delete = [t for t in existing if t not in valid_tables]
+
+        if to_delete:
+            print("🧹 Xóa các bảng không còn trong Notion:")
+            for t in to_delete:
+                cur.execute("DELETE FROM collections_config WHERE name = ?", (t,))
+                print(f"   - Đã xóa: {t}")
+            conn.commit()
+        else:
+            print("✔ Không có bảng nào cần xóa khỏi collections_config.")
+
+        conn.close()
+    except Exception as e:
+        print(f"⚠ Lỗi khi xóa bảng không còn trong Notion: {e}")
