@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 #  Load env
 # ==========================
 
-ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)
@@ -39,7 +39,7 @@ try:
 except Exception:
     pass
 
-FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a - Copy\faq.db")
+FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a_Copy\faq.db")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 

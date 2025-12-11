@@ -1,101 +1,418 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Library Chatbox</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chatbot Thư viện Đại học</title>
+
   <style>
-    :root{
-      --bg:#0b1020; --panel:#121a2c; --muted:#8aa1b1; --line:#253145;
-      --bot:#1e293b; --user:#155e75; --accent:#22d3ee; --danger:#ef4444;
+    :root {
+      --bg: #f9fafb;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #0ea5e9;
+      --user-bg: #0ea5e9;
+      --bot-bg: #f1f5f9;
+      --online: #10b981;
     }
-    
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;background:linear-gradient(180deg,#0b1020 0%,#0f172a 100%);color:#e5eff7;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
-    .app{max-width:880px;margin:auto;display:flex;flex-direction:column;height:100%}
-    header{display:flex;gap:12px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
-    header .dot{width:10px;height:10px;border-radius:999px;background:var(--accent);box-shadow:0 0 16px var(--accent)}
-    header h1{font-size:18px;margin:0}
-    header .sub{font-size:12px;color:var(--muted)}
-    .toolbar{margin-left:auto;display:flex;gap:8px}
-    .btn{padding:8px 12px;border:1px solid var(--line);background:#0f172a;color:#e5eff7;border-radius:12px;cursor:pointer}
-    .btn:hover{background:#0b1226}
-    .btn-danger{border-color:#3b1f26;background:#1a0f13;color:#ffb4b4}
-    .btn-danger:hover{background:#2a151b}
-    .chat{flex:1;overflow:auto;padding:16px 20px;scroll-behavior:smooth}
-    .empty{opacity:.7;text-align:center;padding:24px;border:1px dashed var(--line);border-radius:16px}
-    .msg{display:flex;gap:10px;margin:14px 0}
-    .msg .avatar{width:34px;height:34px;border-radius:999px;flex:none;display:grid;place-items:center}
-    .msg.user .avatar{background:linear-gradient(135deg,#0ea5e9,#22d3ee)}
-    .msg.bot .avatar{background:linear-gradient(135deg,#10b981,#22d3ee)}
-    .bubble{max-width:72%;padding:12px 14px;border-radius:16px;line-height:1.45;border:1px solid var(--line)}
-    .msg.user .bubble{margin-left:auto;background:rgba(21,94,117,.25)}
-    .msg.bot .bubble{background:rgba(30,41,59,.6)}
-    .meta{font-size:11px;color:#9fb1c5;margin-top:6px}
-    .composer{border-top:1px solid var(--line);padding:14px 16px;background:rgba(2,6,23,.6);backdrop-filter: blur(6px);display:flex;gap:10px;align-items:end}
-    textarea{flex:1;min-height:46px;max-height:160px;resize:vertical;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#0f172a;color:#e5eff7}
-    .send{padding:10px 14px;border-radius:12px;background:var(--accent);border:0;color:#00222a;font-weight:600;cursor:pointer}
-    .quick{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
-    .quick .chip{padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:#bcd;cursor:pointer;user-select:none}
-    .chip:hover{background:#0b1226}
-    .footer{padding:10px 16px;color:#8aa1b1;font-size:12px}
-    .kbd{padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:#0b1226;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
-    .status{display:flex;gap:6px;align-items:center}
-    .status .blink{width:6px;height:6px;border-radius:999px;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:blink 1.2s ease-in-out infinite}
-    @keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+    }
+
+    /* ====== NÚT MỞ CHATBOT ====== */
+    .chat-toggle {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      width: 64px; height: 64px;
+      background: var(--accent);
+      color: white;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(14,165,233,.35);
+      z-index: 10000;
+      transition: all .25s ease;
+    }
+    .chat-toggle:hover { transform: scale(1.12); }
+
+    /* ====== WIDGET CHAT ====== */
+    .chat-widget {
+      position: fixed;
+      bottom: 96px; right: 24px;
+      width: 400px;
+      max-width: calc(100vw - 48px);
+      height: 650px;
+      background: var(--panel);
+      border-radius: 22px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.18);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      z-index: 9999;
+      border: 1px solid var(--border);
+      animation: fadeInWidget 0.35s ease;
+    }
+    .chat-widget.open { display: flex; }
+
+    @keyframes fadeInWidget {
+      from { opacity: 0; transform: translateY(20px); }
+    }
+
+    /* ===== HEADER ===== */
+    .chat-header {
+      padding: 20px;
+      background: linear-gradient(135deg, var(--accent), #0c8bd4);
+      color: white;
+    }
+    .chat-header h1 { font-size: 18px; font-weight: 600; }
+    .chat-header .sub { font-size: 13px; opacity: 0.95; margin-top: 4px; }
+    .status-dot {
+      width: 10px; height: 10px;
+      background: var(--online);
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 
+      0%,100% { opacity:1; }
+      50% { opacity:.5; }
+    }
+
+    /* ===== BODY CHAT ===== */
+    .chat-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--bg);
+    }
+    .chat-body::-webkit-scrollbar { width: 5px; }
+    .chat-body::-webkit-scrollbar-thumb {
+      background: #cbd5e1; border-radius: 10px;
+    }
+
+    .message {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 12px;
+      animation: messageIn 0.3s ease;
+    }
+    @keyframes messageIn {
+      from { opacity:0; transform: translateY(10px); }
+    }
+
+    .message.bot { align-self: flex-start; }
+    .message.user { flex-direction: row-reverse; }
+
+    .bubble {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 18px;
+      line-height: 1.5;
+      word-wrap: break-word;
+    }
+    .message.bot .bubble {
+      background: var(--bot-bg);
+      border-bottom-left-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .message.user .bubble {
+      background: var(--user-bg);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble img {
+      max-width: 100%;
+      border-radius: 12px;
+      margin-top: 8px;
+    }
+
+    /* ===== TYPING ===== */
+    .typing { display: flex; gap: 6px; padding: 12px 16px; }
+    .typing span {
+      width: 8px; height: 8px;
+      background: var(--muted);
+      border-radius: 50%;
+      animation: bounce 1.3s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: .15s; }
+    .typing span:nth-child(3) { animation-delay: .3s; }
+
+    @keyframes bounce {
+      0%,100% { transform:translateY(0); }
+      50% { transform:translateY(-10px); }
+    }
+
+    /* ===== INPUT ===== */
+    .chat-input {
+      padding: 16px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .input-tools { display: flex; gap: 10px; align-items: center; }
+
+    textarea {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 15px;
+      resize: none;
+      max-height: 120px;
+      outline: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+
+    .tool-btn {
+      width: 42px; height: 42px;
+      border: none; background: transparent;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      transition: .2s;
+    }
+    .tool-btn:hover { background: #f1f5f9; color: var(--accent); }
+    .tool-btn.active { color: var(--accent); background: #e0f2fe; }
+
+    .send-btn {
+      background: var(--accent);
+      color: white;
+    }
+    .send-btn:hover { background: #0d94d2; }
+
+    /* ===== QUICK REPLY ===== */
+    .quick-replies {
+      display: flex; flex-wrap: wrap;
+      gap: 8px; margin-top: 12px;
+    }
+    .quick-chip {
+      padding: 10px 16px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 32px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .quick-chip:hover {
+      background: #e0f2fe;
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* PREVIEW */
+    .preview { padding: 8px 0; font-size:13px; color: var(--accent); }
+    .preview img, .preview video { max-width: 100%; border-radius: 8px; margin-top: 8px; }
+
   </style>
 </head>
 <body>
-  <div class="app">
-    <header>
-      <div class="dot" aria-hidden="true"></div>
-      <div>
-        <h1>Library Chatbox</h1>
-        <div class="sub">VI Assistant · flow-aware · SQLite friendly</div>
-      </div>
-      <div class="toolbar">
-        <button id="btnExport" class="btn">Xuất lịch sử</button>
-        <button id="btnClear" class="btn btn-danger">Xóa phiên</button>
-      </div>
-    </header>
 
-    <main id="chat" class="chat" aria-live="polite">
-      <div id="emptyState" class="empty">
-        <p>Chào bạn! Hãy bắt đầu trao đổi...<br/>
-        Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · Shift+Enter để xuống dòng.</p>
-      </div>
-    </main>
+  <!-- NÚT MỞ CHATBOT -->
+  <div class="chat-toggle" id="toggleBtn">
+    💬
+  </div>
 
-    <!-- SỬA LẠI TOÀN BỘ PHẦN COMPOSER -->
-    <section class="composer">
-      <textarea id="input" placeholder="Gõ câu hỏi… hoặc gửi kèm ảnh" rows="1"></textarea>
-
-      <!-- Input file ẩn + nút chọn ảnh -->
-      <input type="file" id="imageInput" accept="image/*" style="display:none" />
-      <button type="button" id="pickImage" class="btn" title="Gửi kèm ảnh">Chọn ảnh</button>
-
-      <!-- Preview ảnh đã chọn -->
-      <div id="imagePreview"></div>
-
-      <!-- Nút gửi chính -->
-      <button id="send" class="send">Gửi</button>
-    </section>
-
-    <!-- Quick chips (có thể để riêng nếu muốn) -->
-    <div class="quick" style="padding: 8px 20px; gap: 8px; display: flex; flex-wrap: wrap;">
-      <span class="chip" data-fill="hủy">Hủy luồng</span>
-      <span class="chip" data-fill="giờ mở cửa">Giờ mở cửa</span>
-      <span class="chip" data-fill="mượn sách cần gì?">Mượn sách</span>
+  <!-- WIDGET CHAT -->
+  <div class="chat-widget" id="chatWidget">
+    <div class="chat-header">
+      <h1>Thư viện Đại học</h1>
+      <div class="sub"><span class="status-dot"></span> Đang trực tuyến • Sẵn sàng hỗ trợ</div>
     </div>
 
-    <div class="footer">
-      <div class="status">
-        <span class="blink"></span> Sẵn sàng — API: <span id="apiStatus">offline</span>
+    <div class="chat-body" id="chatBody">
+      <div style="text-align:center; padding:60px 20px; color:var(--muted);">
+        <p style="font-size:20px; margin-bottom:8px;">Xin chào! 👋</p>
+        <p>Mình có thể giúp gì cho bạn hôm nay?</p>
+
+        <div class="quick-replies">
+          <div class="quick-chip" data-text="Giờ mở cửa thư viện?">Giờ mở cửa</div>
+          <div class="quick-chip" data-text="Quy định mượn sách?">Mượn sách</div>
+          <div class="quick-chip" data-text="Cách tìm giáo trình?">Tìm giáo trình</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT -->
+    <div class="chat-input">
+      <div class="preview" id="preview"></div>
+
+      <div class="input-tools">
+        <button class="tool-btn" id="attachBtn">📎</button>
+        <button class="tool-btn" id="cameraBtn">📷</button>
+        <button class="tool-btn" id="micBtn">🎤</button>
+
+        <input type="file" id="fileInput" accept="image/*" hidden>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+        <textarea id="messageInput" placeholder="Nhập tin nhắn..." rows="1"></textarea>
+        <button class="tool-btn send-btn" id="sendBtn">➤</button>
       </div>
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- ====== JAVASCRIPT ====== -->
+  <script>
+    const CHAT_API_URL = "/chat";
+
+    const toggleBtn = document.getElementById("toggleBtn");
+    const widget = document.getElementById("chatWidget");
+    const chatBody = document.getElementById("chatBody");
+    const input = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const fileInput = document.getElementById("fileInput");
+    const cameraInput = document.getElementById("cameraInput");
+    const attachBtn = document.getElementById("attachBtn");
+    const cameraBtn = document.getElementById("cameraBtn");
+    const micBtn = document.getElementById("micBtn");
+    const preview = document.getElementById("preview");
+
+    let mediaRecorder;
+    let audioChunks = [];
+
+    toggleBtn.onclick = () => widget.classList.toggle("open");
+
+    // QUICK REPLY
+    document.querySelectorAll(".quick-chip").forEach(chip => {
+      chip.onclick = () => {
+        input.value = chip.dataset.text;
+        input.focus();
+      };
+    });
+
+    /* ==== GỬI ẢNH ==== */
+    attachBtn.onclick = () => fileInput.click();
+    fileInput.onchange = e => handleFile(e.target.files[0]);
+
+    /* ==== CAMERA ==== */
+    cameraBtn.onclick = () => cameraInput.click();
+    cameraInput.onchange = e => handleFile(e.target.files[0]);
+
+    function handleFile(file) {
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+
+      preview.innerHTML = `
+        <div>Đã chọn: <strong>${file.name}</strong></div>
+        <img src="${url}">
+        <div style="margin-top:6px; cursor:pointer;" onclick="clearPreview()">Hủy</div>
+      `;
+      preview.file = file;
+    }
+    window.clearPreview = () => {
+      preview.innerHTML = "";
+      preview.file = null;
+      preview.audioBlob = null;
+      fileInput.value = cameraInput.value = "";
+    };
+
+    /* ==== GHI ÂM ==== */
+    micBtn.onclick = async () => {
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        micBtn.classList.remove("active");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+          const url = URL.createObjectURL(audioBlob);
+
+          preview.innerHTML = `
+            <div>Đã ghi âm</div>
+            <audio controls src="${url}"></audio>
+            <div style="margin-top:6px; cursor:pointer;" onclick="clearPreview()">Hủy</div>
+          `;
+          preview.audioBlob = audioBlob;
+
+          stream.getTracks().forEach(t => t.stop());
+        };
+
+        mediaRecorder.start();
+        micBtn.classList.add("active");
+      } catch (err) {
+        alert("Không thể truy cập microphone: " + err.message);
+      }
+    };
+
+    /* ==== GỬI TIN NHẮN ==== */
+    async function sendMessage() {
+      let text = input.value.trim();
+      const imageFile = preview.file;
+      const audioBlob = preview.audioBlob;
+
+      if (!text && !imageFile && !audioBlob) return;
+
+      addMessage("user",
+        text || (imageFile ? "📷 Đã gửi ảnh" : "🎤 Đã gửi ghi âm"),
+        imageFile ? URL.createObjectURL(imageFile) : null
+      );
+
+      input.value = "";
+      clearPreview();
+
+      // typing
+      const typing = document.createElement("div");
+      typing.className = "message bot";
+      typing.innerHTML = `<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+      chatBody.appendChild(typing);
+      chatBody.scrollTop = chatBody.scrollHeight;
+
+      // gửi API
+      const form = new FormData();
+      form.append("message", text);
+      if (imageFile) form.append("image", imageFile);
+      if (audioBlob) form.append("audio", audioBlob, "voice.webm");
+
+      try {
+        const res = await fetch(CHAT_API_URL, { method: "POST", body: form });
+        const data = await res.json();
+        typing.remove();
+        addMessage("bot", data.answer || "Xin lỗi, mình chưa hiểu.");
+      } catch (err) {
+        typing.remove();
+        addMessage("bot", "Không thể kết nối máy chủ.");
+      }
+    }
+
+    function addMessage(sender, text, imageUrl = null) {
+      const div = document.createElement("div");
+      div.className = `message ${sender}`;
+      let html = `<div class="bubble">${text.replace(/\n/g, "<br>")}`;
+      if (imageUrl) html += `<img src="${imageUrl}">`;
+      html += `</div>`;
+      div.innerHTML = html;
+
+      chatBody.appendChild(div);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    sendBtn.onclick = sendMessage;
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+
 </body>
 </html>

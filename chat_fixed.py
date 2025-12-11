@@ -74,7 +74,7 @@ async def run_auto_scan_loop():
         
         await asyncio.sleep(interval)
 
-ENV_PATH = r"D:\HTML\a - Copy\rag\.env"
+ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
 
 try:
     if os.path.exists(ENV_PATH):
