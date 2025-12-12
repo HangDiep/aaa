@@ -172,22 +172,27 @@ def is_greeting(text: str) -> bool:
 # ============================================
 
 # ============================================
-def rerank_with_llm(user_q: str, candidates: list):
+def rerank_with_llm(user_q: str, candidates: list, context_str: str = ""):
     """✅ Giảm max_tokens từ 128 xuống 64"""
     if not candidates:
         return None
 
-    # ✅ Chỉ rerank top 5 thay vì tất cả
-    top_candidates = candidates[:5]
+    # ✅ Chỉ rerank top 3 (giảm từ 5) để nhanh hơn
+    top_candidates = candidates[:3]
     
     block = ""
     for i, c in enumerate(top_candidates, start=1):
         block += f"{i}. [{c['category']}] {c['answer']}\n"
+    
+    # Thêm context nếu có
+    context_section = ""
+    if context_str:
+        context_section = f"\nLịch sử hội thoại:\n{context_str}\n"
 
     prompt = f"""
 Bạn là chuyên gia tư vấn thông minh.
 Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
-
+{context_section}
 Câu hỏi: "{user_q}"
 
 Danh sách ứng viên:
@@ -195,6 +200,7 @@ Danh sách ứng viên:
 
 HƯỚNG DẪN TƯ DUY:
 - Hãy hiểu Ý NGHĨA của câu hỏi (không chỉ bắt từ khóa).
+- Nếu có lịch sử hội thoại, sử dụng context để hiểu câu hỏi tốt hơn.
 - Ví dụ: Hỏi "Fanpage" thì câu chứa "Facebook" là đúng. Hỏi "Quy trình" thì câu hướng dẫn các bước là đúng.
 - Nếu câu hỏi tìm "Địa điểm" (ở đâu), hãy chọn câu chứa thông tin vị trí.
 - Nếu câu hỏi tìm "Danh sách" (gồm những gì), hãy chọn câu liệt kê đầy đủ nhất.
@@ -205,7 +211,7 @@ YÊU CẦU:
 
 Chỉ trả về 1 con số duy nhất.
 """
-    out = llm(prompt, temp=0.1, n=64).strip()
+    out = llm(prompt, temp=0.1, n=32).strip()  # ← Giảm từ 64 xuống 32
 
     match = re.search(r'\d+', out)
     if match:
@@ -224,18 +230,29 @@ Chỉ trả về 1 con số duy nhất.
 
 #  MAIN PROCESS - DYNAMIC & AUTOMATED
 # ============================================
-def process_message(text: str) -> str:
+def process_message(text: str, history: list = None) -> str:
     """
-    DYNAMIC VERSION + Multi-step Reasoning
+    DYNAMIC VERSION + Multi-step Reasoning + Conversation Memory
     - Router ngữ nghĩa (Vector + LLM CoT)
     - Clarification (hỏi lại khi mơ hồ)
     - Search theo collection
     - Humanize answer (chỉ học từ CÂU TRẢ LỜI)
+    - Conversation memory (nhớ 2-3 câu trước)
     """
     print("[CHAT.PY] ĐÃ GỌI NÃO (Dynamic Reasoning Mode)")
 
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
+    
+    # Build context from history
+    context_str = ""
+    if history:
+        context_lines = []
+        for user_msg, bot_msg in history:
+            context_lines.append(f"User: {user_msg}")
+            context_lines.append(f"Bot: {bot_msg}")
+        context_str = "\n".join(context_lines)
+        print(f"[CONTEXT] Using {len(history)} previous messages")
 
     try:
         # Import dynamic tools (đã sửa ở trên)
@@ -265,7 +282,12 @@ def process_message(text: str) -> str:
             )
 
         # B2: Multi-step Reasoning Router (CoT + Clarification)
-        router_result = reason_and_route(text, q_vec, llm, model)
+        # Inject context if available
+        router_question = text
+        if context_str:
+            router_question = f"{text}\n\n[Lịch sử gần đây:\n{context_str}]"
+        
+        router_result = reason_and_route(router_question, q_vec, llm, model)
 
         # Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)
         if router_result.needs_clarification and router_result.clarification_question:
@@ -287,7 +309,51 @@ def process_message(text: str) -> str:
         # B5: Search vào knowledge_base, filter theo collection nếu có
         collection_name = router_result.target_collection or "global"
         print(f"[PROCESS] Search in collection: {collection_name}")
-        candidates = search_dynamic(collection_name, q_vec_search, top_k=10)
+        
+        # ✅ B5a: Nếu search sách, extract ngành từ câu hỏi
+        ngành_id = None
+        if collection_name == "sch_":
+            import sqlite3
+            try:
+                # LLM extract tên ngành
+                extract_prompt = f"""
+Câu hỏi: "{text}"
+
+Nhiệm vụ: Tìm TÊN NGÀNH trong câu hỏi.
+
+Ví dụ:
+- "Sách về công nghệ thông tin" → Công nghệ thông tin
+- "Gợi ý sách CNTT" → Công nghệ thông tin
+- "Sách kinh tế" → Kinh tế
+- "Sách Python" → null (không có tên ngành cụ thể)
+
+Chỉ trả tên ngành, hoặc "null" nếu không có:
+"""
+                ngành_name = llm(extract_prompt, temp=0.1, n=30).strip()
+                
+                if ngành_name and ngành_name.lower() != "null":
+                    # Tìm id_ngành từ database
+                    conn = sqlite3.connect("faq.db")
+                    cur = conn.cursor()
+                    cur.execute("SELECT id_ngnh FROM ngnh WHERE tn_ngnh LIKE ?", (f"%{ngành_name}%",))
+                    result = cur.fetchone()
+                    conn.close()
+                    
+                    if result:
+                        ngành_id = result[0]
+                        print(f"[DEBUG] 🎯 Phát hiện ngành: '{ngành_name}' (id={ngành_id})")
+            except Exception as e:
+                print(f"[DEBUG] ⚠️ Ngành extraction failed: {e}")
+        
+        candidates = search_dynamic(collection_name, q_vec_search, top_k=10, ngành_id=ngành_id)
+        
+        # ✅ Filter candidates theo ngành_id (nếu có)
+        if ngành_id is not None and candidates:
+            original_count = len(candidates)
+            candidates = [c for c in candidates if c.get("ngành_id") == ngành_id]
+            filtered_count = len(candidates)
+            if filtered_count < original_count:
+                print(f"[DEBUG] 🔍 Filtered by ngành_id={ngành_id}: {original_count} → {filtered_count} candidates")
 
         if not candidates:
             print("[DEBUG] ❌ Không tìm thấy kết quả nào.")
@@ -299,8 +365,91 @@ def process_message(text: str) -> str:
                 f"  - [{c['score']:.4f}] {c['answer'][:80]}... (Cat: {c['category']})"
             )
 
-        # B6: Rerank với LLM (Chọn câu trả lời phù hợp nhất)
-        best_cand = rerank_with_llm(rewritten, candidates)
+        # B6a: Dùng LLM để hiểu user muốn bao nhiêu kết quả
+        extract_prompt = f"""
+Phân tích câu hỏi sau và trả lời:
+
+Câu hỏi: "{text}"
+
+Hỏi:
+1. User có muốn nhiều kết quả không? (có/không)
+2. Nếu có, user muốn bao nhiêu kết quả? (trả số, nếu không rõ thì trả 3)
+
+Chỉ trả lời theo format: <có/không>|<số>
+
+Ví dụ:
+- "Gợi ý 3 sách về Python" → có|3
+- "Cho tôi 5 cuốn về AI" → có|5
+- "Sách Python giá bao nhiêu?" → không|1
+- "Có sách nào hay không?" → có|3
+"""
+        
+        try:
+            llm_response = llm(extract_prompt, temp=0.1, n=20).strip()
+            parts = llm_response.split('|')
+            
+            if len(parts) == 2 and parts[0].lower() == 'có':
+                try:
+                    requested_count = int(parts[1])
+                    print(f"[DEBUG] 🔢 LLM phát hiện: User muốn {requested_count} kết quả")
+                    
+                    # Lấy đúng số lượng user yêu cầu (tối đa 10)
+                    actual_count = min(requested_count, len(candidates), 10)
+                    top_n = candidates[:actual_count * 2]  # Lấy gấp đôi để lọc
+                    
+                    # ✅ LLM Filter: Lọc chỉ giữ kết quả liên quan
+                    filter_prompt = f"""
+Câu hỏi: "{text}"
+
+Danh sách kết quả:
+{chr(10).join([f"{i+1}. {c['answer'][:200]}" for i, c in enumerate(top_n)])}
+
+NHIỆM VỤ: Chọn {requested_count} kết quả THỰC SỰ LIÊN QUAN đến câu hỏi.
+
+QUY TẮC NGHIÊM NGẶT:
+- Nếu hỏi về "công nghệ thông tin" → CHỈ chọn sách về lập trình, AI, dữ liệu, máy tính
+- LOẠI BỎ sách về: ngôn ngữ, toán học cơ bản, vật lý, hóa học (trừ khi câu hỏi yêu cầu)
+- Ưu tiên sách có từ khóa CHÍNH XÁC khớp với câu hỏi
+
+Trả về danh sách số thứ tự (ví dụ: 2,5,7), KHÔNG giải thích:
+"""
+                    try:
+                        filter_response = llm(filter_prompt, temp=0.1, n=30).strip()
+                        selected_indices = [int(x.strip())-1 for x in filter_response.split(',') if x.strip().isdigit()]
+                        selected_candidates = [top_n[i] for i in selected_indices if 0 <= i < len(top_n)]
+                        
+                        if selected_candidates:
+                            top_n = selected_candidates[:requested_count]
+                            print(f"[DEBUG] 🔍 LLM filtered: Giữ {len(top_n)} kết quả liên quan")
+                        else:
+                            top_n = top_n[:requested_count]  # Fallback
+                    except:
+                        top_n = top_n[:requested_count]  # Fallback nếu filter lỗi
+                    
+                    combined_answer = "\n\n".join([
+                        f"{i+1}. {c['answer']}" 
+                        for i, c in enumerate(top_n)
+                    ])
+                    
+                    print(f"[DEBUG] ✅ Trả về {actual_count} kết quả")
+                    print(f"[DEBUG] 📝 Raw answer (before humanize):")
+                    print(combined_answer)
+                    print("[DEBUG] ==================")
+                    final_ans = humanize_answer(text, combined_answer)
+                    print(f"[DEBUG] 🎨 After humanize:")
+                    print(final_ans)
+                    print("[DEBUG] ==================")
+                    return final_ans
+                except ValueError:
+                    pass
+        except Exception as e:
+            print(f"[DEBUG] ⚠️ LLM extract failed: {e}, fallback to rerank")
+            print(f"[DEBUG] ✅ Trả về top 3 kết quả (user muốn gợi ý)")
+            final_ans = humanize_answer(text, combined_answer)
+            return final_ans
+
+        # B6b: Rerank với LLM (Chọn câu trả lời phù hợp nhất) - Chỉ khi hỏi 1 câu cụ thể
+        best_cand = rerank_with_llm(rewritten, candidates, context_str=context_str)
 
         if not best_cand:
             if candidates and candidates[0]["score"] > 0.35:
@@ -318,7 +467,7 @@ def process_message(text: str) -> str:
                 f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:80]}..."
             )
 
-        # B7: HUMANIZE ANSWER (chỉ học từ CÂU TRẢ LỜI)
+        # B7: HUMANIZE ANSWER (viết lại tự nhiên)
         raw_answer = best_cand["answer"]
         final_ans = humanize_answer(text, raw_answer)
         return final_ans

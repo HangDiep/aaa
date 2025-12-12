@@ -7,6 +7,18 @@ const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
 
 // =============================
+// Session ID (for conversation memory)
+// =============================
+let sessionId = localStorage.getItem('chat_session_id');
+if (!sessionId) {
+  sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem('chat_session_id', sessionId);
+  console.log('🆕 New session created:', sessionId);
+} else {
+  console.log('📌 Existing session:', sessionId);
+}
+
+// =============================
 // State
 // =============================
 const chat = document.getElementById("chat");
@@ -110,6 +122,7 @@ async function send() {
   try {
     const fd = new FormData();
     fd.append("message", text);
+    fd.append("session_id", sessionId);  // ← Send session ID
 
     const res = await fetch(CHAT_API_URL, {
       method: "POST",
@@ -261,6 +274,11 @@ btnNew.addEventListener("click", () => {
     transcript.length = 0;
     persist();
     render();
+
+    // Reset session ID (clear conversation memory)
+    sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('chat_session_id', sessionId);
+    console.log('🔄 New session started:', sessionId);
   }
 });
 

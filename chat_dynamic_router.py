@@ -186,24 +186,37 @@ def humanize_answer(user_question: str, raw_answer: str) -> str:
     Viết lại câu trả lời cho tự nhiên, thân thiện như nhân viên thư viện.
     CHỈ HỌC TỪ CÂU TRẢ LỜI (raw_answer). Câu hỏi chỉ để tham chiếu ngữ cảnh.
     """
+    # Đếm số items trong raw_answer
+    item_count = raw_answer.count('\n\n') + 1 if '\n\n' in raw_answer else 1
+    
     prompt = f"""
-Bạn là nhân viên thư viện, nhiệm vụ là trả lời NGẮN GỌN nhưng TỰ NHIÊN, THÂN THIỆN, giống con người thật.
+Bạn là nhân viên thư viện, nhiệm vụ là viết lại câu trả lời ngắn gọn nhưng tự nhiên, thân thiện.
 
-THÔNG TIN CHÍNH XÁC (CHỈ ĐƯỢC DÙNG DỮ LIỆU NÀY, KHÔNG ĐƯỢC BỊA):
+THÔNG TIN CHÍNH XÁC (CHỈ ĐƯỢC DÙNG DỮ LIỆU NÀY):
 {raw_answer}
 
-CÂU HỎI CỦA NGƯỜI DÙNG:
-\"{user_question}\"
+CÂU HỎI: "{user_question}"
 
-YÊU CẦU:
-- Chỉ dùng thông tin trong phần THÔNG TIN CHÍNH XÁC để trả lời.
-- KHÔNG được thêm số liệu, địa chỉ, link, email, số điện thoại nếu không có trong raw_answer.
-- Nếu dữ liệu là dạng "key: value | key2: value2", hãy ghép lại thành câu mượt mà.
-- Giữ thái độ lịch sự, thân thiện như nhân viên thư viện.
+YÊU CẦU NGHIÊM NGẶT:
+1. Raw answer có {item_count} items → BẠN PHẢI LIỆT KÊ ĐẦY ĐỦ {item_count} items
+2. NGHIÊM CẤM bỏ qua bất kỳ item nào
+3. NGHIÊM CẤM viết "chỉ tìm thấy 1" khi có {item_count} items
+4. Nếu có format "1. ... 2. ... 3. ..." → Giữ nguyên cấu trúc danh sách
+5. Chuyển "key: value" thành câu văn tự nhiên
+6. Giữ thái độ lịch sự
+
+VÍ DỤ (3 items):
+Raw: "1. name: Python\n\n2. name: Java\n\n3. name: C++"
+→ "Thư viện có 3 sách:
+1. Python
+2. Java
+3. C++"
+
+PHẢI ĐỦ {item_count} ITEMS! KHÔNG ĐƯỢC BỎ QUA!
 
 Trả lời:
 """
-    out = _local_llm(prompt, temp=0.7, n=200)
+    out = _local_llm(prompt, temp=0.1, n=400)  # Tăng tokens + giảm temp
     return out.strip() if out else raw_answer.strip()
 
 
@@ -271,7 +284,7 @@ def reason_and_route(
         f"second={second_score:.3f}, margin={margin:.3f}"
     )
 
-    # Ngưỡng tự tin: cực kỳ rõ ràng → không cần LLM
+    # Ngưỡng tự tin: tin tưởng vector hơn để nhanh hơn
     if best_score > 0.70 and margin > 0.15:
         print(f"[ROUTER] ✅ Tin tưởng VECTOR, chọn collection: {best_name}")
         return RouterResult(
@@ -300,20 +313,33 @@ CÂU HỎI GỐC:
 CÁC BẢNG DỮ LIỆU (COLLECTIONS) CÓ THỂ LIÊN QUAN:
 {options_str}
 
-NHIỆM VỤ (SUY NGHĨ NHIỀU BƯỚC TRONG ĐẦU BẠN):
-1. Hiểu người dùng đang hỏi về loại thông tin gì.
-2. Quyết định câu hỏi nên tra trong bảng nào (nếu rõ ràng).
-3. Nếu câu hỏi QUÁ MƠ HỒ (không biết nên tra bảng nào) → đề xuất hỏi lại người dùng.
-4. Viết lại câu hỏi thành phiên bản rõ nghĩa hơn để dùng cho tìm kiếm.
+HƯỚNG DẪN QUAN TRỌNG:
+- Nếu user hỏi về SÁCH (gợi ý sách, tìm sách, sách nào, có sách...) → LUÔN chọn "sch_"
+- Nếu user hỏi về NGÀNH HỌC (ngành gì, mã ngành...) → Chọn "ngnh"
+- Nếu user hỏi về FAQ (câu hỏi thường gặp, hỏi đáp...) → Chọn "faq_"
+
+VÍ DỤ:
+- "Gợi ý 3 sách về CNTT" → target_collection: "sch_"
+- "Có sách Python không?" → target_collection: "sch_"
+- "Tìm sách về AI" → target_collection: "sch_"
+- "Ngành CNTT mã là gì?" → target_collection: "ngnh"
+- "Thư viện mở cửa mấy giờ?" → target_collection: "faq_"
+
+NHIỆM VỤ:
+1. Hiểu người dùng đang hỏi về loại thông tin gì
+2. Quyết định câu hỏi nên tra trong bảng nào
+3. Nếu câu hỏi QUÁ MƠ HỒ → đề xuất hỏi lại
+4. Viết lại câu hỏi rõ nghĩa hơn
 
 ĐỊNH DẠNG TRẢ LỜI (JSON, KHÔNG GIẢI THÍCH THÊM):
 {{
-  "target_collection": "<tên collection hoặc null nếu nên GLOBAL>",
+  "target_collection": "<tên collection hoặc null nếu GLOBAL>",
   "needs_clarification": true/false,
-  "clarification_question": "<câu hỏi cần hỏi lại nếu needs_clarification=true, ngược lại để rỗng>",
-  "rewritten_question": "<phiên bản câu hỏi rõ nghĩa hơn, nếu không cần đổi thì dùng lại câu gốc>",
+  "clarification_question": "<câu hỏi cần hỏi lại nếu needs_clarification=true>",
+  "rewritten_question": "<phiên bản câu hỏi rõ nghĩa hơn>",
   "confidence": 0.0-1.0
 }}
+
 """
 
     try:
@@ -412,13 +438,15 @@ def route_llm_dynamic(
 #  SEARCH DYNAMIC
 # ============================================
 
+
 def search_dynamic(
-    collection_name: str, q_vec: np.ndarray, top_k: int = 10
+    collection_name: str, q_vec: np.ndarray, top_k: int = 10, ngành_id: int = None
 ) -> List[Dict]:
     """
     Search vào Qdrant bằng HTTP API trực tiếp (không dùng client.search)
     - Global collection: GLOBAL_COLLECTION
     - Nếu collection_name != 'faq' và != 'global' -> filter theo source_table
+    - Nếu ngành_id được cung cấp -> filter thêm theo id_ngành
     """
     import requests
     import json
@@ -439,14 +467,17 @@ def search_dynamic(
 
     # Filter theo collection_name nếu không phải global
     if collection_name and collection_name not in ("faq", "global"):
-        body["filter"] = {
-            "must": [
-                {
-                    "key": "source_table",
-                    "match": {"value": collection_name},
-                }
-            ]
-        }
+        must_conditions = [
+            {
+                "key": "source_table",
+                "match": {"value": collection_name},
+            }
+        ]
+        
+        # Note: Không filter id_ngnh ở Qdrant vì cấu trúc nested array phức tạp
+        # Sẽ filter trong Python sau khi nhận kết quả
+        
+        body["filter"] = {"must": must_conditions}
 
     headers = {"Content-Type": "application/json"}
     if QDRANT_API_KEY:
@@ -487,6 +518,41 @@ def search_dynamic(
                 or payload.get("name")
                 or "Thông tin chi tiết"
             )
+            
+            # ✅ Extract id_ngnh từ nested array: [{"type": "number", "number": 1}]
+            # ✅ Extract id_ngnh từ nested array: {"type": "array", "array": [{"type": "number", "number": 1}]}
+            extracted_ngành_id = None
+            id_ngnh_raw = payload.get("id_ngnh")
+            
+            # Debug extraction
+            # print(f"[DEBUG-EXTRACT] id_ngnh raw type: {type(id_ngnh_raw)}")
+
+            if id_ngnh_raw:
+                try:
+                    # Nếu là string JSON, parse ra dict/list
+                    if isinstance(id_ngnh_raw, str):
+                        import json
+                        id_ngnh_raw = json.loads(id_ngnh_raw)
+                    
+                    # Case 1: Direct list (ít gặp trong structure này nhưng cứ giữ)
+                    if isinstance(id_ngnh_raw, list) and len(id_ngnh_raw) > 0:
+                        first_item = id_ngnh_raw[0]
+                        if isinstance(first_item, dict):
+                            extracted_ngành_id = first_item.get("number")
+                            
+                    # Case 2: Dict notion format {"type": "array", "array": [...]}
+                    elif isinstance(id_ngnh_raw, dict):
+                        if id_ngnh_raw.get("type") == "array" and "array" in id_ngnh_raw:
+                            array_val = id_ngnh_raw.get("array")
+                            if isinstance(array_val, list) and len(array_val) > 0:
+                                first_item = array_val[0]
+                                if isinstance(first_item, dict) and first_item.get("type") == "number":
+                                    extracted_ngành_id = first_item.get("number")
+                                    
+                    # print(f"[DEBUG-EXTRACT] Extracted ID: {extracted_ngành_id}")
+                except Exception as e:
+                    print(f"[DEBUG-EXTRACT] Error: {e}")
+                    pass
 
             candidates.append(
                 {
@@ -495,6 +561,7 @@ def search_dynamic(
                     "answer": final_content,
                     "category": source,
                     "id": hit.get("id"),
+                    "ngành_id": extracted_ngành_id,
                 }
             )
 

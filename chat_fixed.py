@@ -9,20 +9,26 @@ import socket
 from datetime import datetime
 import chat
 import requests 
-from fastapi.responses import PlainTextResponse
-from fastapi import FastAPI, Request  # Import sync router
+from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from sync_dynamic import router as dynamic_router  # Import dynamic sync router
 
 app = FastAPI()
 
-# Include sync endpoints từ sync_n8n_to_sqlite.py
-
+# Mount static files (CSS, JS)
+app.mount("/view", StaticFiles(directory="view"), name="view")
 
 # Include dynamic sync endpoints từ sync_dynamic.py
 app.include_router(dynamic_router)
 print("✅ Dynamic sync endpoints included: /notion/dynamic/sync, /notion/dynamic/delete")
 
 # ============== RELOAD CONFIG ENDPOINT ==============
+@app.get("/")
+async def root():
+    """Redirect to chatbot interface"""
+    return FileResponse("view/Chatbot.html")
+
 @app.post("/reload-config")
 def reload_config():
     """
@@ -110,11 +116,13 @@ def ensure_main_db() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
             user_message TEXT,
             bot_reply   TEXT,
             intent_tag  TEXT,
             confidence  REAL,
-            time        TEXT
+            time        TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """
     )
@@ -153,7 +161,7 @@ def log_question_for_notion(question: str) -> None:
 
 def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-def process_message(sentence: str) -> str:
+def process_message(sentence: str, session_id: str = "default") -> str:
     sentence = (sentence or "").strip()
 
     if not sentence:
@@ -161,22 +169,29 @@ def process_message(sentence: str) -> str:
         tag_to_log = None
         confidence = 0.0
     else:
-        # 👉 GỌI NÃO CHÍNH Ở FILE chat.py
+        # 1) Lấy lịch sử hội thoại (2-3 câu gần nhất, trong 10 phút)
+        history = get_recent_history(session_id, limit=3, expire_minutes=10)
+        
+        if history:
+            print(f"[MEMORY] Loaded {len(history)} previous messages for session: {session_id}")
+        
+        # 2) GỌI NÃO CHÍNH Ở FILE chat.py (với history)
         try:
-            reply = chat.process_message(sentence)
+            reply = chat.process_message(sentence, history=history)
         except Exception as e:
             print("[chat_fixed] Lỗi gọi chat.process_message:", e)
             reply = "Hiện tại hệ thống đang gặp lỗi khi xử lý câu hỏi của bạn."
         tag_to_log = None   # nếu sau này muốn lưu intent/category riêng thì sửa ở đây
         confidence = 1.0
 
-    # 3) Ghi SQLite trước
+    # 3) Ghi SQLite với session_id
     conn = ensure_main_db()
     cur  = conn.cursor()
+    now_str = _now()
     cur.execute(
-        "INSERT INTO conversations(user_message, bot_reply, intent_tag, confidence, time) "
-        "VALUES (?,?,?,?,?)",
-        (sentence, reply, tag_to_log, confidence, _now()),
+        "INSERT INTO conversations(session_id, user_message, bot_reply, intent_tag, confidence, time, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (session_id, sentence, reply, tag_to_log, confidence, now_str, now_str),
     )
     conn.commit()
     conn.close()
@@ -205,6 +220,33 @@ def process_message(sentence: str) -> str:
             print("Notion push error:", e)
 
     return reply
+
+
+# ============== CHAT ENDPOINT ==============
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    """
+    Main chat endpoint - accepts message and session_id from web interface
+    """
+    try:
+        form = await request.form()
+        message = form.get("message", "").strip()
+        session_id = form.get("session_id", "default")
+        
+        if not message:
+            return {"answer": "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"}
+        
+        # Process message with session context
+        reply = process_message(message, session_id=session_id)
+        
+        return {"answer": reply}
+    
+    except Exception as e:
+        print(f"[/chat] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"answer": "Xin lỗi, hệ thống đang gặp lỗi. Vui lòng thử lại."}
+
 
 
 def _dns_ok(host: str, timeout_s: float = 3.0) -> bool:
@@ -485,23 +527,52 @@ def _ntn_session():
     s.mount("http://", HTTPAdapter(max_retries=retry))
     return s
 
-def get_recent_history(limit=6):
-    """Lấy luân phiên Q/A gần nhất, mới → cũ (tối đa limit dòng)."""
+def get_recent_history(session_id: str = None, limit=3, expire_minutes=10):
+    """
+    Lấy lịch sử hội thoại gần nhất theo session.
+    
+    Args:
+        session_id: ID của session (từ LocalStorage)
+        limit: Số câu tối đa (mặc định 3)
+        expire_minutes: Thời gian hết hạn (mặc định 10 phút)
+    
+    Returns:
+        List of (user_message, bot_reply) tuples
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("""
-            SELECT user_message, bot_reply, time
-            FROM conversations
-            ORDER BY id DESC
-            LIMIT ?
-        """, (limit,))
+        
+        # Tính thời gian cutoff (10 phút trước)
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(minutes=expire_minutes)).isoformat()
+        
+        if session_id:
+            # Lọc theo session và thời gian
+            cur.execute("""
+                SELECT user_message, bot_reply
+                FROM conversations
+                WHERE session_id = ? 
+                  AND datetime(created_at) > datetime(?)
+                ORDER BY id DESC
+                LIMIT ?
+            """, (session_id, cutoff, limit))
+        else:
+            # Fallback: Lấy tất cả (backward compatible)
+            cur.execute("""
+                SELECT user_message, bot_reply
+                FROM conversations
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+        
         rows = cur.fetchall()
         conn.close()
-        # đảo lại cho thành cũ → mới
+        # Đảo lại cho thành cũ → mới
         rows.reverse()
         return rows
-    except Exception:
+    except Exception as e:
+        print(f"[get_recent_history] Error: {e}")
         return []
 # import requests
 
