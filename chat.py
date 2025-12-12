@@ -4,7 +4,6 @@
 # ============================================
 
 import os
-import sqlite3
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import requests
@@ -25,7 +24,6 @@ try:
 except Exception:
     pass
 
-FAQ_DB_PATH = os.getenv("FAQ_DB_PATH")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
 
@@ -172,30 +170,7 @@ def is_greeting(text: str) -> bool:
 # ============================================
 #  REWRITE - TỐI ƯU HÓA
 # ============================================
-def rewrite_question(q: str) -> str:
-    if len(q.split()) < 2:
-        return q
 
-    prompt = f"""
-Bạn là một trợ lý thông minh. Hãy ĐỌC HIỂU ý định của người dùng và viết lại câu hỏi sao cho rõ ràng, đầy đủ nghĩa nhất.
-Nếu câu hỏi quá ngắn, dùng từ đa nghĩa hoặc thiếu chủ ngữ, hãy diễn giải lại theo cách người bình thường sẽ hỏi đầy đủ.
-ĐẶC BIỆT:
-- Nếu hỏi về "số", "gọi", "alo" -> Thêm từ khóa "số điện thoại liên hệ hotline".
-- Nếu hỏi về "ở đâu", "chỗ nào" -> Thêm từ khóa "địa điểm vị trí".
-
-Ví dụ:
-- "số nao" -> "số điện thoại liên hệ hotline là gì"
-- "mở cửa ko" -> "giờ mở cửa hoạt động như thế nào"
-- "liên hệ sao" -> "cách thức liên hệ với thư viện"
-
-Câu gốc: "{q}"
-
-Câu viết lại (chỉ viết 1 câu duy nhất):
-"""
-    out = llm(prompt, temp=0.1, n=64)
-    return out.strip() if out else q
-# ============================================
-#  RERANK - TỐI ƯU HÓA
 # ============================================
 def rerank_with_llm(user_q: str, candidates: list):
     """✅ Giảm max_tokens từ 128 xuống 64"""
@@ -245,70 +220,8 @@ Chỉ trả về 1 con số duy nhất.
 
     return None
 
-# ============================================
-#  STRICT ANSWER - TỐI ƯU HÓA
-# ============================================
-def strict_answer(question: str, knowledge: str) -> str:
-    """✅ Giảm max_tokens từ 128 xuống 120 (cân bằng RAM vs chất lượng)"""
-    print(f"[DEBUG STRICT] Q: {question} | Knowledge: {knowledge[:50]}...")
-    prompt = f"""
-Bạn là trợ lý ảo của thư viện. Trả lời NGẮN GỌN, ĐÚNG TRỌNG TÂM.
 
-THÔNG TIN:
-{knowledge}
 
-CÂU HỎI: "{question}"
-
-QUY TẮC:
-1. Trả lời NGẮN (1-2 câu), chỉ thông tin CHÍNH XÁC từ KNOWLEDGE
-2. KHÔNG thêm lời chào, KHÔNG hỏi lại, KHÔNG giải thích dài dòng
-3. Nếu hỏi về email/hotline/facebook → CHỈ trả thông tin đó, KHÔNG thêm gì khác
-4. Nếu KNOWLEDGE không liên quan → Trả: "{FALLBACK_MSG}"
-
-VÍ DỤ:
-Q: "email thư viện"
-K: "Email: thuvien@ttn.edu.vn, Hotline: 0123456789"
-A: "Email của thư viện là thuvien@ttn.edu.vn nhé!"
-
-Q: "facebook thư viện"
-K: "Email: thuvien@ttn.edu.vn, Hotline: 0123456789"
-A: "{FALLBACK_MSG}"
-
-Trả lời (NGẮN GỌN):
-"""
-    out = llm(prompt, temp=0.1, n=120)
-    print(f"[DEBUG STRICT OUT] {out}")
-
-    if not out:
-        return FALLBACK_MSG
-
-    out = out.strip()
-    
-    # Loại bỏ câu hỏi thừa ở cuối
-    if "?" in out:
-        sentences = out.split("?")
-        if len(sentences) > 1 and len(sentences[-1].strip()) < 10:
-            out = sentences[0].strip() + "."
-    
-    # Loại bỏ lời chào thừa
-    greetings = ["Chào bạn!", "Xin chào!", "Dạ,", "Vâng,"]
-    for g in greetings:
-        if out.startswith(g):
-            out = out[len(g):].strip()
-    
-    # Chấp nhận câu trả lời có số / email / link
-    if any(c.isdigit() for c in out) or "@" in out or "http" in out:
-        return out
-
-    if "không có thông tin" in out.lower() and len(out) < 15:
-        return FALLBACK_MSG
-
-    return out
-
-# ============================================
-#  MAIN PROCESS - TỐI ƯU HÓA
-# ============================================
-# ============================================
 #  MAIN PROCESS - DYNAMIC & AUTOMATED
 # ============================================
 def process_message(text: str) -> str:
@@ -331,7 +244,6 @@ def process_message(text: str) -> str:
             search_dynamic,
             get_collections_with_descriptions,
             humanize_answer,
-            GLOBAL_COLLECTION,
         )
 
         # ✅ Lấy model (lazy load)
