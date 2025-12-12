@@ -2,7 +2,7 @@
 // Config
 // =============================
 const CHAT_API_URL = localStorage.getItem("CHAT_API_URL") || "/chat";
-const WS_URL = "ws://127.0.0.1:9000/ws";   // 🔥 server.py port 9000
+const WS_URL = "ws://127.0.0.1:8000/ws";   // ✅ app.py port 8000 with STT
 
 const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
@@ -77,7 +77,7 @@ function persist() {
 
 async function safeParse(res) {
   const txt = await res.text();
-  try { return JSON.parse(txt); } 
+  try { return JSON.parse(txt); }
   catch { return { answer: txt }; }
 }
 
@@ -109,21 +109,21 @@ async function send() {
 
   // CHAT + OCR
   try {
-      const fd = new FormData();
-      fd.append("message", text);
+    const fd = new FormData();
+    fd.append("message", text);
 
-      const res = await fetch(CHAT_API_URL, {
-          method: "POST",
-          body: fd
-      });
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      body: fd
+    });
 
-      const data = await safeParse(res);
+    const data = await safeParse(res);
 
-      // 🔥 FIX: backend trả {answer: "..."} hoặc {output: "..."}
-      reply = data.answer || data.output || "Không có phản hồi.";
+    // 🔥 FIX: backend trả {answer: "..."} hoặc {output: "..."}
+    reply = data.answer || data.output || "Không có phản hồi.";
 
   } catch (e) {
-      reply = "Không gọi được API: " + e.message;
+    reply = "Không gọi được API: " + e.message;
   }
 
 
@@ -194,27 +194,27 @@ function initWebSocket() {
   ws.onclose = () => console.log("WS closed");
 
   ws.onmessage = (event) => {
-  const msg = JSON.parse(event.data);
+    const msg = JSON.parse(event.data);
 
-  if (msg.sender === "user") {
+    if (msg.sender === "user") {
       transcript.push({
-          user_message: msg.text,
-          bot_reply: "",
-          time: formatTime()
+        user_message: msg.text,
+        bot_reply: "",
+        time: formatTime()
       });
-  }
+    }
 
-  if (msg.sender === "bot") {
+    if (msg.sender === "bot") {
       transcript.push({
-          user_message: "",
-          bot_reply: msg.text,
-          time: formatTime()
+        user_message: "",
+        bot_reply: msg.text,
+        time: formatTime()
       });
-  }
+    }
 
-  persist();
-  render();
-};
+    persist();
+    render();
+  };
 }
 
 
