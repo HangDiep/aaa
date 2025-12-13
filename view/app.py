@@ -63,7 +63,10 @@ async def chat(message: str = Form(""), image: UploadFile = File(None)):
                 pass
 
     return {"answer": answer}
-
+@app.get("/", response_class=HTMLResponse)
+def home():
+    file_path = Path(__file__).parent / "index.html"
+    return file_path.read_text(encoding="utf-8")
 # Các route cũ
 @app.get("/search")
 def search(q: str):
@@ -80,6 +83,10 @@ def home():
     file_path = STATIC_DIR / "Chatbot.html"
     if not file_path.exists():
         return "<h1>Không tìm thấy Chatbot.html</h1>"
+    return file_path.read_text(encoding="utf-8")
+@app.get("/chatbot", response_class=HTMLResponse)
+def chatbot_page():
+    file_path = Path(__file__).parent / "Chatbot.html"
     return file_path.read_text(encoding="utf-8")
 
 @app.get("/ping")

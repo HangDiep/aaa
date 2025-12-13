@@ -4,12 +4,15 @@ import sqlite3
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-
+from pathlib import Path
 # --------------------------
 # Config & ENV
 # --------------------------
-BASE_DIR = os.path.dirname(__file__)
-ENV_PATH = r"D:\HTML\a\rag\.env"
+# Đảm bảo mọi file tài nguyên đều được tìm từ thư mục gốc D:\aaa\
+BASE_DIR = Path(__file__).resolve().parent
+os.chdir(BASE_DIR)  # QUAN TRỌNG: đổi thư mục làm việc về D:\aaa
+print(f"[DEBUG] Đã chuyển thư mục làm việc về: {BASE_DIR}")
+ENV_PATH = r"D:\aaa\rag\data\.env"
 if os.path.exists(ENV_PATH):
     load_dotenv(ENV_PATH, override=True)
 else:
