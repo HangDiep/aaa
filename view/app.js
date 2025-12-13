@@ -31,7 +31,8 @@ const btnExport = document.getElementById("btnExport");
 const btnNew = document.getElementById("btnNew");
 const btnRecord = document.getElementById("btnRecord");
 
-const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
+// Transcript: Không lưu lại sau khi F5 (theo yêu cầu)
+const transcript = [];
 
 let sending = false;
 let ws = null;
@@ -87,7 +88,7 @@ function render() {
 }
 
 function persist() {
-  localStorage.setItem("chat_transcript", JSON.stringify(transcript));
+  // Đã tắt lưu transcript theo yêu cầu (F5 là mất)
 }
 
 async function safeParse(res) {
