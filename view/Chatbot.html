@@ -16,11 +16,14 @@
     <header>
       <div class="dot"></div>
       <div>
-        <h1>CHAT THƯ VIỆN</h1>
-        <div class="sub"> Trợ lý thư viện <span id="apiStatus"></span></div>
+        <h1>Chat Assistant</h1>
+        <div class="sub">API: <span id="apiStatus"></span></div>
       </div>
 
       <div class="toolbar">
+        <button id="btnOCR" class="btn">📷 OCR</button>
+        <button id="btnRecord" class="btn">🎤 Ghi âm</button>
+        <button id="btnExport" class="btn">Xuất JSON</button>
         <button id="btnNew" class="btn btn-reset">Mới</button>
       </div>
     </header>
@@ -36,8 +39,10 @@
 
       <div>
         <textarea id="input" placeholder="Nhập tin nhắn..."></textarea>
-        <button id="btnOCR" class="btn">📷 OCR</button>
-        <button id="btnRecord" class="btn">🎤 Ghi âm</button>
+        <div class="quick">
+          <div class="chip" data-fill="Giờ mở cửa thư viện?">Giờ mở cửa?</div>
+          <div class="chip" data-fill="Thủ tục mượn sách?">Mượn sách</div>
+        </div>
       </div>
 
       <button id="send" class="send">Gửi</button>
