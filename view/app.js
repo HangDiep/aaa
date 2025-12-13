@@ -2,10 +2,23 @@
 // Config
 // =============================
 const CHAT_API_URL = localStorage.getItem("CHAT_API_URL") || "/chat";
-const WS_URL = "ws://127.0.0.1:8000/ws";   // ✅ app.py port 8000 with STT
+// Voice Server chạy riêng ở port 9000 (banghiamcuoicung/server.py)
+const WS_URL = "ws://127.0.0.1:9000/ws";
 
 const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
+
+// =============================
+// Session ID (for conversation memory)
+// =============================
+let sessionId = localStorage.getItem('chat_session_id');
+if (!sessionId) {
+  sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem('chat_session_id', sessionId);
+  console.log('🆕 New session created:', sessionId);
+} else {
+  console.log('📌 Existing session:', sessionId);
+}
 
 // =============================
 // State
@@ -17,6 +30,7 @@ const emptyState = document.getElementById("emptyState");
 const btnExport = document.getElementById("btnExport");
 const btnNew = document.getElementById("btnNew");
 const btnRecord = document.getElementById("btnRecord");
+
 const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
 
 let sending = false;
@@ -48,7 +62,7 @@ function escapeHtml(s) {
 }
 
 function msgTemplate(role, text, time) {
-  const content = role === "bot" ? text : escapeHtml(text).replace(/\n/g, "<br/>");
+  const content = role === "bot" ? (text || "") : escapeHtml(text || "").replace(/\n/g, "<br/>");
   return `
     <article class="msg ${role}">
       <div class="avatar">${role === "bot" ? "🤖" : "🧑"}</div>
@@ -61,8 +75,9 @@ function msgTemplate(role, text, time) {
 
 function render() {
   chat.innerHTML = "";
-  if (!transcript.length) chat.appendChild(emptyState);
-  else {
+  if (!transcript.length) {
+    chat.appendChild(emptyState);
+  } else {
     transcript.forEach((row) => {
       chat.insertAdjacentHTML("beforeend", msgTemplate("user", row.user_message, row.time));
       chat.insertAdjacentHTML("beforeend", msgTemplate("bot", row.bot_reply, row.time));
@@ -82,10 +97,11 @@ async function safeParse(res) {
 }
 
 // =============================
-// Send text
+// Send logic
 // =============================
 async function send() {
   if (sending) return;
+
   const text = input.value.trim();
   if (!text) return;
 
@@ -107,10 +123,11 @@ async function send() {
 
   let reply = "";
 
-  // CHAT + OCR
+  // CHAT
   try {
     const fd = new FormData();
     fd.append("message", text);
+    fd.append("session_id", sessionId);  // ✅ Send session ID
 
     const res = await fetch(CHAT_API_URL, {
       method: "POST",
@@ -118,14 +135,11 @@ async function send() {
     });
 
     const data = await safeParse(res);
-
-    // 🔥 FIX: backend trả {answer: "..."} hoặc {output: "..."}
     reply = data.answer || data.output || "Không có phản hồi.";
 
   } catch (e) {
     reply = "Không gọi được API: " + e.message;
   }
-
 
   record.bot_reply = reply;
   persist();
@@ -136,7 +150,8 @@ async function send() {
   sendBtn.textContent = "Gửi";
 }
 
-sendBtn.addEventListener("click", send);
+if (sendBtn) sendBtn.addEventListener("click", send);
+
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
@@ -145,14 +160,14 @@ input.addEventListener("keydown", (e) => {
 });
 
 // =============================
-// OCR
+// OCR Logic
 // =============================
 const btnOCR = document.getElementById("btnOCR");
 const ocrInput = document.getElementById("ocrInput");
 
-btnOCR.addEventListener("click", () => ocrInput.click());
+if (btnOCR) btnOCR.addEventListener("click", () => ocrInput.click());
 
-ocrInput.addEventListener("change", async () => {
+if (ocrInput) ocrInput.addEventListener("change", async () => {
   const file = ocrInput.files[0];
   if (!file) return;
 
@@ -171,14 +186,15 @@ ocrInput.addEventListener("change", async () => {
   fd.append("image", file);
 
   try {
-    const res = await fetch(CHAT_API_URL, { method: "POST", body: fd });
+    // Post to /ocr endpoint (assuming same host)
+    const res = await fetch("/ocr", { method: "POST", body: fd });
     const data = await safeParse(res);
     reply = data.answer;
   } catch (e) {
     reply = "Lỗi OCR: " + e.message;
   }
 
-  record.bot_reply = reply;
+  record.bot_reply = reply || "Không đọc được văn bản.";
   persist();
   render();
 });
@@ -217,37 +233,33 @@ function initWebSocket() {
   };
 }
 
-
+// Start WebSocket
 initWebSocket();
 
 // =============================
-// Voice Recording
+// Voice Recording (WebSocket Stream)
 // =============================
-// =============================
-// Voice Recording (FIXED)
-// =============================
-// =============================
-// Voice Recording – FIXED FULL
-// =============================
-btnRecord.addEventListener("click", async () => {
+if (btnRecord) btnRecord.addEventListener("click", async () => {
 
   if (!mediaRecorder) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
-    mediaRecorder.ondataavailable = async (event) => {
-      const buffer = await event.data.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-
-      let binary = "";
-      bytes.forEach(b => binary += String.fromCharCode(b));
-
-      const base64 = btoa(binary);
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(base64);
-      }
-    };
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+          const buffer = await event.data.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = "";
+          bytes.forEach(b => binary += String.fromCharCode(b));
+          const base64 = btoa(binary);
+          ws.send(base64);
+        }
+      };
+    } catch (e) {
+      alert("Không thể truy cập microphone: " + e.message);
+      return;
+    }
   }
 
   if (mediaRecorder.state === "inactive") {
@@ -260,8 +272,6 @@ btnRecord.addEventListener("click", async () => {
     btnRecord.classList.remove("recording");
   }
 });
-
-
 
 // =============================
 // Export & New
@@ -281,7 +291,13 @@ btnNew.addEventListener("click", () => {
     transcript.length = 0;
     persist();
     render();
+
+    // Reset session ID (Keep logic from diep)
+    sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('chat_session_id', sessionId);
+    console.log('🔄 New session started:', sessionId);
   }
 });
 
+// Init
 render();

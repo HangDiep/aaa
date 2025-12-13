@@ -1,28 +1,20 @@
 # ============================================
 #  CHATBOT 4-BƯỚC – HIỂU NGHĨA, KHÔNG BỊA
-#  Router (LLM + Embedding) → Rewrite (LLM)
-#  → Search (Embedding + LLM Rerank) → Strict Answer (LLM)
-#  Model LLM:  Gemini 2.5 Flash (Google GenAI)
-#  Model Emb:  BAAI/bge-m3
+#  PHIÊN BẢN TỐI ƯU RAM
 # ============================================
 
 import os
-import re
-import sqlite3
 import numpy as np
 from sentence_transformers import SentenceTransformer
-
-# ==== NEW: Gemini SDK + dotenv ====
-from google import genai
-from google.genai import types
+import requests
+import json
+import re
+import time
+import random
+import gc  # ✅ Garbage collector
 from dotenv import load_dotenv
 
-FAQ_DB_PATH = r"D:\HTML\a_Copy\faq.db"
-
-# ==== NEW: cấu hình Gemini ====
-GEMINI_MODEL = "gemini-2.5-flash"
-
-# Load .env (ưu tiên file trong thư mục rag như chat_fixed.py)
+# Load .env
 ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
 try:
     if os.path.exists(ENV_PATH):
@@ -32,366 +24,175 @@ try:
 except Exception:
     pass
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-gemini_client = None
-if not GEMINI_API_KEY:
-    print("⚠ Không tìm thấy GEMINI_API_KEY trong .env – LLM sẽ trả rỗng.")
-else:
-    try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-        print("✅ Đã khởi tạo Gemini client.")
-    except Exception as e:
-        print(f"⚠ Lỗi khởi tạo Gemini client: {e}")
-        gemini_client = None
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
 
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
 # ============================================
-#  EMBEDDING MODEL
+#  EMBEDDING MODEL - LAZY LOAD + AUTO CLEANUP
 # ============================================
-print("Đang tải model embedding (lần đầu sẽ hơi lâu)...")
-try:
-    embed_model = SentenceTransformer("BAAI/bge-m3")
-except Exception as e:
-    print(f"⚠ Lỗi load model embedding: {e}")
-    print("Đang dùng fallback model (keepitreal/vietnamese-sbert)...")
-    embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
+embed_model = None
+last_model_use = 0
+MODEL_TIMEOUT = 300  # ✅ Giải phóng model sau 5 phút không dùng
 
+def get_model():
+    global embed_model, last_model_use
+    
+    if embed_model is not None:
+        last_model_use = time.time()
+        return embed_model
+    
+    try:
+        print("🔄 Đang load model BAAI/bge-m3...")
+        embed_model = SentenceTransformer("BAAI/bge-m3")
+        print("✅ Load BAAI/bge-m3 thành công!")
+    except Exception as e:
+        print(f"⚠ Lỗi load BAAI/bge-m3: {e}")
+        print("🔄 Đang dùng fallback model keepitreal/vietnamese-sbert...")
+        embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
+        print("✅ Load fallback thành công!")
+    
+    last_model_use = time.time()
+    return embed_model
+
+def cleanup_model_if_idle():
+    """✅ Giải phóng model nếu không dùng lâu"""
+    global embed_model, last_model_use
+    if embed_model is not None and (time.time() - last_model_use) > MODEL_TIMEOUT:
+        print("🧹 Giải phóng embedding model (idle quá lâu)...")
+        del embed_model
+        embed_model = None
+        gc.collect()
 
 # ============================================
-#  TEXT NORMALIZE – NHẸ, KHÔNG PHÁ NGHĨA
+#  TEXT NORMALIZE
 # ============================================
 def normalize(x: str) -> str:
-    # chỉ lower + trim, không đụng tới dấu
     return " ".join(x.lower().strip().split())
 
-
 # ============================================
-#  LLM CALL – DÙNG GEMINI THAY OLLAMA
+#  LLM CALL - TỐI ƯU HÓA
 # ============================================
-def llm(prompt: str, temp: float = 0.15, n: int = 128) -> str:
+def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
     """
-    Gọi Gemini 2.5 Flash để sinh câu trả lời ngắn.
-    temp: độ "ngẫu nhiên"
-    n: max_output_tokens (số token tối đa cần sinh)
+    Gọi Zhipu AI API với retry logic
+    ✅ Giảm timeout, giảm max_tokens mặc định
     """
-    if gemini_client is None:
+    if not GROQ_API_KEY:
         return ""
 
-    try:
-        resp = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={
-                "temperature": float(temp),
-                "max_output_tokens": int(n),
-            },
-        )
-        return (resp.text or "").strip()
-    except Exception as e:
-        print(f"⚠ Lỗi gọi Gemini: {e}")
-        return ""
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temp,
+        "max_tokens": n,
+    }
 
+    max_retries = 2  # ✅ Giảm từ 3 xuống 2
+    base_delay = 1   # ✅ Giảm từ 2s xuống 1s
 
-# ============================================
-#  LOAD & EMBED DB
-# ============================================
-print("Đang tải dữ liệu từ faq.db...")
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=20  # ✅ Giảm từ 30s xuống 20s
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                result = data["choices"][0]["message"]["content"].strip()
+                del data  # ✅ Giải phóng response data
+                return result
+            
+            if resp.status_code == 429:
+                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                print(f"⚠ Zhipu AI quá tải (429). Đang chờ {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+                
+            print(f"⚠ Lỗi Zhipu AI {resp.status_code}: {resp.text}")
+            return ""
 
-if not os.path.exists(FAQ_DB_PATH):
-    print(f"❌ Không tìm thấy file {FAQ_DB_PATH}. Hãy chạy sync_all.py / sync_faq.py trước!")
-    # Tạo dummy để không crash
-    FAQ_TEXTS, BOOK_TEXTS, MAJOR_TEXTS = [], [], []
-    FAQ_EMB = np.zeros((0, 768))
-    BOOK_EMB = np.zeros((0, 768))
-    MAJOR_EMB = np.zeros((0, 768))
-    faq_rows, book_rows, major_rows = [], [], []
-else:
-    conn = sqlite3.connect(FAQ_DB_PATH)
-    cur = conn.cursor()
-
-    # FAQ
-    cur.execute(
-        "SELECT question, answer, category FROM faq WHERE approved = 1 OR approved IS NULL"
-    )
-    faq_rows = cur.fetchall()
-
-    FAQ_TEXTS = []
-    for q, a, cat in faq_rows:
-        # Nhúng Category + Answer để tạo chunk kiến thức rõ nghĩa
-        content = f"{cat or ''}: {a or ''}"
-        FAQ_TEXTS.append(normalize(content))
-
-    # BOOKS
-    cur.execute(
-        """
-        SELECT b.name, b.author, b.year, b.quantity, b.status, m.name
-        FROM books b LEFT JOIN majors m ON b.major_id = m.major_id
-        """
-    )
-    book_rows = cur.fetchall()
-    BOOK_TEXTS = [
-        normalize(f"sách {n}. tác giả {a}. ngành {m or ''}")
-        for n, a, _, _, _, m in book_rows
-    ]
-
-    # MAJORS
-    cur.execute("SELECT name, major_id, description FROM majors")
-    major_rows = cur.fetchall()
-    MAJOR_TEXTS = [
-        normalize(f"ngành {n}. mã {mid}. {desc or ''}")
-        for n, mid, desc in major_rows
-    ]
-
-    conn.close()
-
-    print("Đang tạo embedding (lần đầu sẽ hơi lâu)...")
-    FAQ_EMB = (
-        embed_model.encode(FAQ_TEXTS, normalize_embeddings=True)
-        if FAQ_TEXTS
-        else np.zeros((0, 768))
-    )
-    BOOK_EMB = (
-        embed_model.encode(BOOK_TEXTS, normalize_embeddings=True)
-        if BOOK_TEXTS
-        else np.zeros((0, 768))
-    )
-    MAJOR_EMB = (
-        embed_model.encode(MAJOR_TEXTS, normalize_embeddings=True)
-        if MAJOR_TEXTS
-        else np.zeros((0, 768))
-    )
-
-    print(f"✅ Đã tải: FAQ={len(faq_rows)} | BOOKS={len(book_rows)} | MAJORS={len(major_rows)}")
-
+        except Exception as e:
+            print(f"⚠ Lỗi gọi Zhipu AI: {e}")
+            return ""
+    
+    return ""
 
 # ============================================
-#  ROUTER – FALLBACK BẰNG EMBEDDING (REAL DB)
+#  CONNECT TO QDRANT - LAZY INIT
 # ============================================
-def auto_route_by_embedding(q_vec: np.ndarray) -> str:
-    """
-    Nếu LLM phân loại linh tinh → dùng embedding chọn bảng nào gần nhất
-    dựa trên dữ liệu thật trong FAQ/BOOKS/MAJORS.
-    """
-    best_type = "FAQ"
-    best_score = -1.0
+from qdrant_client import QdrantClient
 
-    if len(FAQ_EMB) > 0:
-        s = float(np.max(np.dot(FAQ_EMB, q_vec)))
-        best_type, best_score = "FAQ", s
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-    if len(BOOK_EMB) > 0:
-        s = float(np.max(np.dot(BOOK_EMB, q_vec)))
-        if s > best_score:
-            best_type, best_score = "BOOKS", s
+qdrant_client = None
 
-    if len(MAJOR_EMB) > 0:
-        s = float(np.max(np.dot(MAJOR_EMB, q_vec)))
-        if s > best_score:
-            best_type, best_score = "MAJORS", s
-
-    return best_type
-
+def get_qdrant_client():
+    """✅ Lazy initialization cho Qdrant client"""
+    global qdrant_client
+    if qdrant_client is None:
+        print("🔗 Kết nối tới Qdrant...")
+        if QDRANT_API_KEY:
+            qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        else:
+            qdrant_client = QdrantClient(url=QDRANT_URL)
+        
+        try:
+            collections = qdrant_client.get_collections().collections
+            collection_names = [c.name for c in collections]
+            print(f"✅ Đã kết nối Qdrant: {len(collections)} collections ({', '.join(collection_names)})")
+        except Exception as e:
+            print(f"❌ Lỗi kết nối Qdrant: {e}")
+    
+    return qdrant_client
 
 # ============================================
-#  SIMPLE GREETING CHECK
+#  ROUTER - TỐI ƯU HÓA
 # ============================================
+
 def is_greeting(text: str) -> bool:
     t = text.lower().strip()
     greet_words = ["xin chào", "chào bạn", "chào ad", "hello", "hi", "alo"]
     return any(w in t for w in greet_words)
 
 
-# ============================================
-# 1) ROUTER – 100% LLM + EMBEDDING (KHÔNG DÙNG data.pth)
-# ============================================
-def route_llm(question: str, q_vec: np.ndarray) -> str:
-    """
-    HYBRID ROUTER:
-    1. Hỏi LLM (Reasoning): "Câu này thuộc nhóm nào?"
-    2. Nếu LLM trả đúng (BOOKS/MAJORS/FAQ/OTHER) -> Tin nó.
-    3. Nếu LLM trả linh tinh -> Dùng auto_route_by_embedding (vector từ DB thật).
-    """
-    # B0: Check Greeting nhanh
-    if is_greeting(question) and len(question.split()) <= 4:
-        print("[ROUTER] Detected GREETING")
-        return "GREETING"
-
-    # B1: Dùng LLM (Reasoning)
-    prompt = f"""
-Phân loại câu hỏi vào 1 trong 3 nhóm dựa trên BẢN CHẤT:
-
-1. BOOKS (Sách & Tài liệu):
-   - Chỉ chọn khi người dùng tìm kiếm TÀI LIỆU, SÁCH, GIÁO TRÌNH, LUẬN VĂN cụ thể.
-   - Ví dụ: "Tìm sách Python", "Giáo trình Kinh tế lượng", "Tài liệu về AI".
-
-2. MAJORS (Ngành học & Đào tạo):
-   - Chỉ chọn khi người dùng hỏi về CHƯƠNG TRÌNH ĐÀO TẠO, TUYỂN SINH, KHOA/VIỆN.
-   - Ví dụ: "Ngành CNTT học gì", "Mã ngành 7480201", "Khoa Luật ở đâu".
-
-3. FAQ (Thông tin chung & Khác):
-   - TẤT CẢ các câu hỏi còn lại.
-   - Bao gồm: Quy định, Thủ tục, Giờ làm việc, Wifi, Tài khoản.
-   - Bao gồm: CƠ SỞ VẬT CHẤT, ĐỊA ĐIỂM (Phòng ốc, Canteen, Bãi xe...), SỰ KIỆN.
-   - Bao gồm: SỐ LƯỢNG, THỐNG KÊ (Tổng số sách, Có bao nhiêu tài liệu...).
-
-LƯU Ý ƯU TIÊN:
-- Hỏi về "Tổng số lượng", "Thống kê", "Có bao nhiêu" -> CHỌN FAQ (kể cả có từ "sách").
-- Hỏi về "Ở đâu", "Phòng nào", "Tầng mấy" (Vị trí) -> CHỌN FAQ (kể cả có từ "sách").
-- Nếu câu hỏi không rõ ràng -> CHỌN FAQ.
-
-Câu hỏi: "{question}"
-
-Chỉ trả về đúng 1 từ: FAQ hoặc BOOKS hoặc MAJORS.
-"""
-    out = llm(prompt, temp=0.05, n=10).upper().strip()
-
-    clean_out = re.sub(r'[^A-Z]', '', out)
-
-    print(f"[ROUTER LLM] Output: '{out}' -> Clean: '{clean_out}'")
-
-    if clean_out in ["FAQ", "BOOKS", "MAJORS"]:
-        print(f"[ROUTER] ✅ LLM chọn: {clean_out}")
-        return clean_out
-
-    # B2: Fallback bằng Vector (Real DB)
-    print(f"[ROUTER] ⚠️ LLM không chắc chắn -> Dùng auto_route_by_embedding (Real DB)...")
-    fallback_route = auto_route_by_embedding(q_vec)
-    print(f"[ROUTER] -> Vector (DB) chọn: {fallback_route}")
-    return fallback_route
-
 
 # ============================================
-# 2) REWRITE – KHÔNG ĐỤNG CÂU QUÁ NGẮN
+#  REWRITE - TỐI ƯU HÓA
 # ============================================
-def rewrite_question(q: str) -> str:
-    if len(q.split()) < 2:
-        return q
-
-    prompt = f"""
-Bạn là một trợ lý thông minh. Hãy ĐỌC HIỂU ý định của người dùng và viết lại câu hỏi sao cho rõ ràng, đầy đủ nghĩa nhất.
-Nếu câu hỏi quá ngắn, dùng từ đa nghĩa hoặc thiếu chủ ngữ, hãy diễn giải lại theo cách người bình thường sẽ hỏi đầy đủ.
-ĐẶC BIỆT:
-- Nếu hỏi về "số", "gọi", "alo" -> Thêm từ khóa "số điện thoại liên hệ hotline".
-- Nếu hỏi về "ở đâu", "chỗ nào" -> Thêm từ khóa "địa điểm vị trí".
-
-Ví dụ:
-- "số nào" -> "số điện thoại liên hệ hotline là gì"
-- "mở cửa ko" -> "giờ mở cửa hoạt động như thế nào"
-- "liên hệ sao" -> "cách thức liên hệ với thư viện"
-
-Câu gốc: "{q}"
-
-Câu viết lại (chỉ viết 1 câu duy nhất):
-"""
-    out = llm(prompt, temp=0.1, n=64)
-    return out.strip() if out else q
-
 
 # ============================================
-# 3A) SEMANTIC SEARCH CHO FAQ
-# ============================================
-def search_faq_candidates(q_vec: np.ndarray, top_k: int = 10, filter_category: str = None):
-    if len(FAQ_EMB) == 0:
-        return []
-
-    sims = np.dot(FAQ_EMB, q_vec)
-    idx = np.argsort(-sims)[:top_k]
-
-    candidates = []
-    for i in idx:
-        score = float(sims[i])
-        if score < 0.08:
-            continue
-
-        q, a, cat = faq_rows[i]
-
-        if filter_category and filter_category not in ["FAQ", "BOOKS", "MAJORS", "GREETING"]:
-            if cat != filter_category:
-                continue
-
-        candidates.append(
-            {
-                "score": score,
-                "question": q or "",
-                "answer": a or "",
-                "category": cat or "",
-                "id": i,
-            }
-        )
-    return candidates
-
-
-# ============================================
-# 3B) SEMANTIC SEARCH CHO BOOKS / MAJORS
-# ============================================
-def search_nonfaq(table: str, q_vec: np.ndarray, top_k: int = 10):
-    candidates = []
-
-    if table == "BOOKS":
-        if len(BOOK_EMB) == 0:
-            return []
-        sims = np.dot(BOOK_EMB, q_vec)
-        rows = book_rows
-        th = 0.15
-        idx = np.argsort(-sims)[:top_k]
-        for i in idx:
-            score = float(sims[i])
-            if score < th:
-                continue
-            n, a, y, qty, s, m = rows[i]
-            content = (
-                f"Sách: {n}. Tác giả: {a}. Năm: {y}. "
-                f"Số lượng: {qty}. Tình trạng: {s}. Ngành: {m or 'Chung'}"
-            )
-            candidates.append({
-                "score": score,
-                "question": "",
-                "answer": content,
-                "category": "BOOKS",
-                "id": i
-            })
-        return candidates
-
-    # MAJORS
-    if len(MAJOR_EMB) == 0:
-        return []
-    sims = np.dot(MAJOR_EMB, q_vec)
-    rows = major_rows
-    th = 0.20
-    idx = np.argsort(-sims)[:top_k]
-    for i in idx:
-        score = float(sims[i])
-        if score < th:
-            continue
-        name, code, desc = rows[i]
-        content = f"Ngành: {name}. Mã ngành: {code}. Mô tả: {desc or 'Đang cập nhật'}"
-        candidates.append({
-            "score": score,
-            "question": "",
-            "answer": content,
-            "category": "MAJORS",
-            "id": i
-        })
-    return candidates
-
-
-# ============================================
-# 3C) LLM RERANK CHO FAQ/BOOKS/MAJORS
-# ============================================
-def rerank_with_llm(user_q: str, candidates: list):
+def rerank_with_llm(user_q: str, candidates: list, context_str: str = ""):
+    """✅ Giảm max_tokens từ 128 xuống 64"""
     if not candidates:
         return None
 
+    # ✅ Chỉ rerank top 3 (giảm từ 5) để nhanh hơn
+    top_candidates = candidates[:3]
+    
     block = ""
-    for i, c in enumerate(candidates, start=1):
+    for i, c in enumerate(top_candidates, start=1):
         block += f"{i}. [{c['category']}] {c['answer']}\n"
+    
+    # Thêm context nếu có
+    context_section = ""
+    if context_str:
+        context_section = f"\nLịch sử hội thoại:\n{context_str}\n"
 
     prompt = f"""
 Bạn là chuyên gia tư vấn thông minh.
 Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
-
+{context_section}
 Câu hỏi: "{user_q}"
 
 Danh sách ứng viên:
@@ -399,6 +200,7 @@ Danh sách ứng viên:
 
 HƯỚNG DẪN TƯ DUY:
 - Hãy hiểu Ý NGHĨA của câu hỏi (không chỉ bắt từ khóa).
+- Nếu có lịch sử hội thoại, sử dụng context để hiểu câu hỏi tốt hơn.
 - Ví dụ: Hỏi "Fanpage" thì câu chứa "Facebook" là đúng. Hỏi "Quy trình" thì câu hướng dẫn các bước là đúng.
 - Nếu câu hỏi tìm "Địa điểm" (ở đâu), hãy chọn câu chứa thông tin vị trí.
 - Nếu câu hỏi tìm "Danh sách" (gồm những gì), hãy chọn câu liệt kê đầy đủ nhất.
@@ -409,142 +211,284 @@ YÊU CẦU:
 
 Chỉ trả về 1 con số duy nhất.
 """
-    out = llm(prompt, temp=0.1, n=128).strip()
+    out = llm(prompt, temp=0.1, n=32).strip()  # ← Giảm từ 64 xuống 32
 
     match = re.search(r'\d+', out)
     if match:
         idx = int(match.group()) - 1
-        if 0 <= idx < len(candidates):
-            return candidates[idx]
+        if 0 <= idx < len(top_candidates):
+            return top_candidates[idx]
 
     # Fallback: tin top 1 nếu score rất cao
-    if candidates and candidates[0]['score'] > 0.45:
-        print(f"[Rerank] LLM từ chối, nhưng Top 1 score cao ({candidates[0]['score']:.2f}) -> Chọn Top 1.")
-        return candidates[0]
+    if top_candidates and top_candidates[0]['score'] > 0.45:
+        print(f"[Rerank] LLM từ chối, nhưng Top 1 score cao ({top_candidates[0]['score']:.2f}) -> Chọn Top 1.")
+        return top_candidates[0]
 
     return None
 
 
-def strict_answer(question: str, knowledge: str) -> str:
-    print(f"[DEBUG STRICT] Q: {question} | Knowledge: {knowledge[:50]}...")
-    prompt = f"""
-Bạn là trợ lý ảo của thư viện. 
-NHIỆM VỤ: Trả lời câu hỏi dựa trên thông tin cung cấp bên dưới.
 
-THÔNG TIN (KNOWLEDGE):
-{knowledge}
-
-CÂU HỎI (QUESTION): "{question}"
-
-QUY TẮC BẮT BUỘC:
-1. TUYỆT ĐỐI TRẢ LỜI BẰNG TIẾNG VIỆT.
-2. Nếu thông tin có vẻ liên quan (dù chỉ một phần), HÃY TRẢ LỜI NGAY.
-3. Ví dụ: Hỏi "sách công nghệ" mà có "Công nghệ phần mềm" -> TRẢ LỜI thông tin sách đó.
-4. Nếu thông tin là danh sách, hãy trích xuất ý chính.
-5. ĐỐI VỚI TÊN RIÊNG (Tác giả, Tên sách, Người liên hệ...): PHẢI TRÍCH XUẤT CHÍNH XÁC 100%, KHÔNG ĐƯỢC RÚT GỌN.
-6. Nếu câu hỏi dùng từ đồng nghĩa, hãy tự suy luận.
-7. Nếu có số liệu/thống kê, hãy đưa ra con số đó.
-8. Tuyệt đối KHÔNG trả lời "{FALLBACK_MSG}" nếu bạn tìm thấy thông tin liên quan.
-
-Nếu thông tin HOÀN TOÀN KHÔNG LIÊN QUAN thì mới nói: "{FALLBACK_MSG}"
-
-Câu trả lời của bạn (Tiếng Việt):
-"""
-    out = llm(prompt, temp=0.05, n=256)
-    print(f"[DEBUG STRICT OUT] {out}")
-
-    if not out:
-        return FALLBACK_MSG
-
-    out = out.strip()
-
-    # Chấp nhận câu trả lời có số / email / link
-    if any(c.isdigit() for c in out) or "@" in out or "http" in out:
-        return out
-
-    if "không có thông tin" in out.lower() and len(out) < 15:
-        return FALLBACK_MSG
-
-    return out
-
-
+#  MAIN PROCESS - DYNAMIC & AUTOMATED
 # ============================================
-#  MAIN PROCESS
-# ============================================
-def process_message(text: str) -> str:
-    print("[CHAT.PY] ĐÃ GỌI NÃO")
+def process_message(text: str, history: list = None) -> str:
+    """
+    DYNAMIC VERSION + Multi-step Reasoning + Conversation Memory
+    - Router ngữ nghĩa (Vector + LLM CoT)
+    - Clarification (hỏi lại khi mơ hồ)
+    - Search theo collection
+    - Humanize answer (chỉ học từ CÂU TRẢ LỜI)
+    - Conversation memory (nhớ 2-3 câu trước)
+    """
+    print("[CHAT.PY] ĐÃ GỌI NÃO (Dynamic Reasoning Mode)")
+
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
+    
+    # Build context from history
+    context_str = ""
+    if history:
+        context_lines = []
+        for user_msg, bot_msg in history:
+            context_lines.append(f"User: {user_msg}")
+            context_lines.append(f"Bot: {bot_msg}")
+        context_str = "\n".join(context_lines)
+        print(f"[CONTEXT] Using {len(history)} previous messages")
 
-    # B0: vector cho router
-    q_vec_route = embed_model.encode(normalize(text), normalize_embeddings=True)
+    try:
+        # Import dynamic tools (đã sửa ở trên)
+        from chat_dynamic_router import (
+            reason_and_route,
+            search_dynamic,
+            get_collections_with_descriptions,
+            humanize_answer,
+        )
 
-    # B1: Router (LLM + Embedding)
-    route = route_llm(text, q_vec_route)
+        # ✅ Lấy model (lazy load)
+        model = get_model()
 
-    # B2: Rewrite
-    rewritten = rewrite_question(text)
-    q_vec = embed_model.encode(normalize(rewritten), normalize_embeddings=True)
+        # B0: Tạo vector 1 lần duy nhất
+        normalized_text = normalize(text)
+        q_vec = model.encode(normalized_text, normalize_embeddings=True)
 
-    if route == "GREETING":
-        return "Xin chào! Tôi là trợ lý ảo thư viện. Bạn cần tìm sách, hỏi quy định hay thông tin ngành học?"
+        # B1: Greeting
+        if is_greeting(text) and len(text.split()) <= 4:
+            collections = get_collections_with_descriptions()
+            collection_names = ", ".join(
+                [n.upper() for n in list(collections.keys())[:3]]
+            )
+            return (
+                f"Xin chào! Tôi là trợ lý ảo. Bạn có thể hỏi về: "
+                f"{collection_names} hoặc bất cứ thông tin nào khác..."
+            )
 
-    # BOOKS
-    if route == "BOOKS":
-        candidates = search_nonfaq("BOOKS", q_vec, top_k=15)
+        # B2: Multi-step Reasoning Router (CoT + Clarification)
+        # Inject context if available
+        router_question = text
+        if context_str:
+            router_question = f"{text}\n\n[Lịch sử gần đây:\n{context_str}]"
+        
+        router_result = reason_and_route(router_question, q_vec, llm, model)
+
+        # Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)
+        if router_result.needs_clarification and router_result.clarification_question:
+            print("[PROCESS] Clarification required → hỏi lại người dùng.")
+            return router_result.clarification_question
+
+        # B3: Lấy câu hỏi đã làm rõ (rewritten_question)
+        rewritten = router_result.rewritten_question or text
+
+        # Tùy chọn: nếu bạn vẫn muốn thêm lớp rewrite_question cũ
+        # rewritten2 = rewrite_question(rewritten)
+        # if rewritten2: rewritten = rewritten2
+
+        # B4: Embed lại cho search
+        q_vec_search = model.encode(
+            normalize(rewritten), normalize_embeddings=True
+        )
+
+        # B5: Search vào knowledge_base, filter theo collection nếu có
+        collection_name = router_result.target_collection or "global"
+        print(f"[PROCESS] Search in collection: {collection_name}")
+        
+        # ✅ B5a: Nếu search sách, extract ngành từ câu hỏi
+        ngành_id = None
+        if collection_name == "sch_":
+            import sqlite3
+            try:
+                # LLM extract tên ngành
+                extract_prompt = f"""
+Câu hỏi: "{text}"
+
+Nhiệm vụ: Tìm TÊN NGÀNH trong câu hỏi.
+
+Ví dụ:
+- "Sách về công nghệ thông tin" → Công nghệ thông tin
+- "Gợi ý sách CNTT" → Công nghệ thông tin
+- "Sách kinh tế" → Kinh tế
+- "Sách Python" → null (không có tên ngành cụ thể)
+
+Chỉ trả tên ngành, hoặc "null" nếu không có:
+"""
+                ngành_name = llm(extract_prompt, temp=0.1, n=30).strip()
+                
+                if ngành_name and ngành_name.lower() != "null":
+                    # Tìm id_ngành từ database
+                    conn = sqlite3.connect("faq.db")
+                    cur = conn.cursor()
+                    cur.execute("SELECT id_ngnh FROM ngnh WHERE tn_ngnh LIKE ?", (f"%{ngành_name}%",))
+                    result = cur.fetchone()
+                    conn.close()
+                    
+                    if result:
+                        ngành_id = result[0]
+                        print(f"[DEBUG] 🎯 Phát hiện ngành: '{ngành_name}' (id={ngành_id})")
+            except Exception as e:
+                print(f"[DEBUG] ⚠️ Ngành extraction failed: {e}")
+        
+        candidates = search_dynamic(collection_name, q_vec_search, top_k=10, ngành_id=ngành_id)
+        
+        # ✅ Filter candidates theo ngành_id (nếu có)
+        if ngành_id is not None and candidates:
+            original_count = len(candidates)
+            candidates = [c for c in candidates if c.get("ngành_id") == ngành_id]
+            filtered_count = len(candidates)
+            if filtered_count < original_count:
+                print(f"[DEBUG] 🔍 Filtered by ngành_id={ngành_id}: {original_count} → {filtered_count} candidates")
+
         if not candidates:
-            return "Không tìm thấy sách nào phù hợp."
+            print("[DEBUG] ❌ Không tìm thấy kết quả nào.")
+            return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
 
-        print(f"[DEBUG BOOKS] Found {len(candidates)} candidates.")
-        best_cand = rerank_with_llm(rewritten, candidates)
+        print(f"[DEBUG] Found {len(candidates)} candidates.")
+        for c in candidates:
+            print(
+                f"  - [{c['score']:.4f}] {c['answer'][:80]}... (Cat: {c['category']})"
+            )
+
+        # B6a: Dùng LLM để hiểu user muốn bao nhiêu kết quả
+        extract_prompt = f"""
+Phân tích câu hỏi sau và trả lời:
+
+Câu hỏi: "{text}"
+
+Hỏi:
+1. User có muốn nhiều kết quả không? (có/không)
+2. Nếu có, user muốn bao nhiêu kết quả? (trả số, nếu không rõ thì trả 3)
+
+Chỉ trả lời theo format: <có/không>|<số>
+
+Ví dụ:
+- "Gợi ý 3 sách về Python" → có|3
+- "Cho tôi 5 cuốn về AI" → có|5
+- "Sách Python giá bao nhiêu?" → không|1
+- "Có sách nào hay không?" → có|3
+"""
+        
+        try:
+            llm_response = llm(extract_prompt, temp=0.1, n=20).strip()
+            parts = llm_response.split('|')
+            
+            if len(parts) == 2 and parts[0].lower() == 'có':
+                try:
+                    requested_count = int(parts[1])
+                    print(f"[DEBUG] 🔢 LLM phát hiện: User muốn {requested_count} kết quả")
+                    
+                    # Lấy đúng số lượng user yêu cầu (tối đa 10)
+                    actual_count = min(requested_count, len(candidates), 10)
+                    top_n = candidates[:actual_count * 2]  # Lấy gấp đôi để lọc
+                    
+                    # ✅ LLM Filter: Lọc chỉ giữ kết quả liên quan
+                    filter_prompt = f"""
+Câu hỏi: "{text}"
+
+Danh sách kết quả:
+{chr(10).join([f"{i+1}. {c['answer'][:200]}" for i, c in enumerate(top_n)])}
+
+NHIỆM VỤ: Chọn {requested_count} kết quả THỰC SỰ LIÊN QUAN đến câu hỏi.
+
+QUY TẮC NGHIÊM NGẶT:
+- Nếu hỏi về "công nghệ thông tin" → CHỈ chọn sách về lập trình, AI, dữ liệu, máy tính
+- LOẠI BỎ sách về: ngôn ngữ, toán học cơ bản, vật lý, hóa học (trừ khi câu hỏi yêu cầu)
+- Ưu tiên sách có từ khóa CHÍNH XÁC khớp với câu hỏi
+
+Trả về danh sách số thứ tự (ví dụ: 2,5,7), KHÔNG giải thích:
+"""
+                    try:
+                        filter_response = llm(filter_prompt, temp=0.1, n=30).strip()
+                        selected_indices = [int(x.strip())-1 for x in filter_response.split(',') if x.strip().isdigit()]
+                        selected_candidates = [top_n[i] for i in selected_indices if 0 <= i < len(top_n)]
+                        
+                        if selected_candidates:
+                            top_n = selected_candidates[:requested_count]
+                            print(f"[DEBUG] 🔍 LLM filtered: Giữ {len(top_n)} kết quả liên quan")
+                        else:
+                            top_n = top_n[:requested_count]  # Fallback
+                    except:
+                        top_n = top_n[:requested_count]  # Fallback nếu filter lỗi
+                    
+                    combined_answer = "\n\n".join([
+                        f"{i+1}. {c['answer']}" 
+                        for i, c in enumerate(top_n)
+                    ])
+                    
+                    print(f"[DEBUG] ✅ Trả về {actual_count} kết quả")
+                    print(f"[DEBUG] 📝 Raw answer (before humanize):")
+                    print(combined_answer)
+                    print("[DEBUG] ==================")
+                    final_ans = humanize_answer(text, combined_answer)
+                    print(f"[DEBUG] 🎨 After humanize:")
+                    print(final_ans)
+                    print("[DEBUG] ==================")
+                    return final_ans
+                except ValueError:
+                    pass
+        except Exception as e:
+            print(f"[DEBUG] ⚠️ LLM extract failed: {e}, fallback to rerank")
+            print(f"[DEBUG] ✅ Trả về top 3 kết quả (user muốn gợi ý)")
+            final_ans = humanize_answer(text, combined_answer)
+            return final_ans
+
+        # B6b: Rerank với LLM (Chọn câu trả lời phù hợp nhất) - Chỉ khi hỏi 1 câu cụ thể
+        best_cand = rerank_with_llm(rewritten, candidates, context_str=context_str)
+
         if not best_cand:
-            best_cand = candidates[0]
+            if candidates and candidates[0]["score"] > 0.35:
+                best_cand = candidates[0]
+                print(
+                    "[DEBUG] ⚠️ Rerank từ chối, nhưng lấy Top 1 do score ổn."
+                )
+            else:
+                print("[DEBUG] ❌ Rerank từ chối tất cả.")
+                return (
+                    "Xin lỗi, tôi tìm thấy một số thông tin nhưng có vẻ không khớp với câu hỏi của bạn."
+                )
+        else:
+            print(
+                f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:80]}..."
+            )
 
-        return strict_answer(rewritten, best_cand['answer'])
+        # B7: HUMANIZE ANSWER (viết lại tự nhiên)
+        raw_answer = best_cand["answer"]
+        final_ans = humanize_answer(text, raw_answer)
+        return final_ans
 
-    # MAJORS
-    if route == "MAJORS":
-        candidates = search_nonfaq("MAJORS", q_vec, top_k=15)
-        if not candidates:
-            return "Không tìm thấy ngành học nào phù hợp."
+    except Exception as e:
+        print(f"[PROCESS] ❌ Error: {e}")
+        import traceback
 
-        print(f"[DEBUG MAJORS] Found {len(candidates)} candidates.")
-        best_cand = rerank_with_llm(rewritten, candidates)
-        if not best_cand:
-            best_cand = candidates[0]
+        traceback.print_exc()
+        return "Xin lỗi, hệ thống đang gặp lỗi xử lý. Vui lòng thử lại sau."
 
-        return strict_answer(rewritten, best_cand['answer'])
-
-    # Mặc định: FAQ
-    filter_cat = None  # hiện tại chưa lọc theo category nhỏ
-    print(f"\n[DEBUG] Filter Category: {filter_cat}")
-
-    candidates = search_faq_candidates(q_vec, top_k=20, filter_category=None)
-
-    if not candidates:
-        print("[DEBUG] ❌ Không tìm thấy candidate nào (do điểm thấp hơn ngưỡng).")
-        return "Xin lỗi, tôi chưa tìm thấy thông tin phù hợp trong cơ sở dữ liệu."
-
-    print(f"[DEBUG] Found {len(candidates)} candidates:")
-    for c in candidates:
-        print(f"  - [{c['score']:.4f}] {c['answer'][:50]}... (Cat: {c['category']})")
-
-    best_cand = rerank_with_llm(rewritten, candidates)
-    if not best_cand:
-        print("[DEBUG] ❌ Rerank LLM từ chối tất cả candidates. Lấy Top 1.")
-        best_cand = candidates[0]
-    else:
-        print(f"[DEBUG] ✅ Rerank chọn: {best_cand['answer'][:50]}...")
-
-    final_ans = strict_answer(rewritten, best_cand['answer'])
-    return final_ans
+    finally:
+        gc.collect()
+        cleanup_model_if_idle()
 
 
 # ============================================
 #  CLI
 # ============================================
 if __name__ == "__main__":
-    print("🤖 Chatbot 4-BƯỚC (Router → Rewrite → Search+Rerank → Strict Answer) đã sẵn sàng!")
+    print("🤖 Chatbot 4-BƯỚC (Phiên bản TỐI ƯU RAM) đã sẵn sàng!")
     while True:
         q = input("\nBạn: ")
         if q.lower() in ["quit", "bye", "exit", "thoát"]:
