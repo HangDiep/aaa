@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 # Load .env
-ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
+# Load .env
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, "rag", ".env")
+
 try:
     if os.path.exists(ENV_PATH):
         load_dotenv(ENV_PATH, override=True)
@@ -22,7 +25,7 @@ try:
 except Exception:
     pass
 
-FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", r"D:\HTML\a_Copy\faq.db")
+FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", os.path.join(BASE_DIR, "faq.db"))
 GLOBAL_COLLECTION = "knowledge_base"
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

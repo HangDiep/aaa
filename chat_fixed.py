@@ -59,7 +59,7 @@ import asyncio
 async def startup_event():
     """
     Khởi động luồng quét tự động (Internal Scheduler).
-    Thay thế n8n: Tự động quét 3 phút/lần.
+    Tự động quét 3 phút/lần.
     """
     asyncio.create_task(run_auto_scan_loop())
 
@@ -78,7 +78,7 @@ async def run_auto_scan_loop():
         
         await asyncio.sleep(interval)
 
-ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
+ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag", ".env")
 
 try:
     if os.path.exists(ENV_PATH):
@@ -101,7 +101,7 @@ CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
 print(f"[ChatDB] Using: {CHAT_DB_PATH}")
 DB_PATH = CHAT_DB_PATH
 
-FAQ_DB_PATH = os.path.normpath(r"D:\HTML\a_Copy\faq.db")
+FAQ_DB_PATH = os.path.join(BASE_DIR, "faq.db")
 CONF_THRESHOLD = 0.60
 LOG_ALL_QUESTIONS = True
 
