@@ -48,20 +48,6 @@ app.add_middleware(
 )
 
 # -----------------------
-#  STARTUP EVENT (AUTO-SYNC)
-# -----------------------
-#đoạn kích hoạt tự động cập nhật 
-import asyncio
-@app.on_event("startup")
-async def startup_event():
-    try:
-        from chat_fixed import run_auto_scan_loop
-        asyncio.create_task(run_auto_scan_loop())
-        print("✅ Auto-scan loop started from view/app.py")
-    except ImportError:
-        print("⚠️ Could not import run_auto_scan_loop from chat_fixed")
-
-# -----------------------
 #  API: CHAT
 # -----------------------
 @app.post("/chat")

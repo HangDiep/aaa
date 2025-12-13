@@ -15,7 +15,7 @@
 
 body {
   margin: 0;
-  background: linear-gradient(180deg, #2a418c 0%, #59698f 100%);
+  background: linear-gradient(180deg, #0b1020 0%, #0f172a 100%);
   color: #e5eff7;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
   height: 100%;
@@ -83,7 +83,7 @@ header .dot {
   gap: 10px;
   padding: 14px 16px;
   border-top: 1px solid var(--line);
-  background: rgba(49, 61, 112, 0.6);
+  background: rgba(2, 6, 23, 0.6);
   backdrop-filter: blur(6px);
 }
 
@@ -95,8 +95,8 @@ textarea {
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: #16264a;
-  color: #2e96eb;
+  background: #0f172a;
+  color: #e5eff7;
 }
 
 /* Buttons */
@@ -106,7 +106,7 @@ textarea {
   cursor: pointer;
   border: 1px solid var(--line);
   background: #1e293b;
-  color: #1b5687;
+  color: #e5eff7;
 }
 
 .send {
@@ -199,48 +199,4 @@ textarea {
   text-align: center;
   padding: 10px;
   color: #8aa1b1;
-}
-/* Composer layout fix */
-/* ===== Composer: single row like Messenger ===== */
-.composer {
-  display: flex;
-  align-items: stretch; 
-  gap: 8px;
-  padding: 10px 14px;
-}
-
-/* div bọc textarea */
-.composer > div {
-  flex: 1;
-}
-
-/* textarea nhỏ – gọn – 1 dòng */
-.composer textarea {
-  width: 100%;
-  min-height: 38px;
-  height: 38px;
-  max-height: 38px;
-  padding: 8px 12px;
-  border-radius: 18px;
-  resize: none;
-  font-size: 14px;
-}
-
-/* OCR + Record nhỏ gọn */
-#btnOCR,
-#btnRecord {
-  height: 34px;
-  min-width: 34px;
-  padding: 0 10px;
-  font-size: 13px;
-  border-radius: 999px;
-}
-
-/* Nút gửi giống icon gửi */
-.send {
-  height: 34px;
-  min-width: 50px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-size: 14px;
 }
