@@ -126,7 +126,9 @@ def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
     import requests
 
     # Load env
-    ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
+    # Load env
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ENV_PATH = os.path.join(BASE_DIR, "rag", ".env")
     try:
         if os.path.exists(ENV_PATH):
             load_dotenv(ENV_PATH, override=True)
@@ -611,46 +613,7 @@ async def get_table_schema(table_name: str):
 # ==========================
 
 
-@router.post("/debug")
-async def debug_dynamic(request: Request):
-    """Debug endpoint để xem n8n gửi gì"""
-    try:
-        body = await request.body()
-        headers = dict(request.headers)
 
-        try:
-            body_str = body.decode("utf-8")
-            json_data = json.loads(body_str)
-        except Exception:
-            json_data = None
-
-        print("=" * 80)
-        print("🔍 DEBUG /notion/dynamic/debug")
-        print("=" * 80)
-        print("\n📋 Headers:")
-        for key, value in headers.items():
-            print(f"   {key}: {value}")
-
-        print(f"\n📦 Raw Body ({len(body)} bytes):")
-        print(body.decode("utf-8", errors="replace")[:1000])
-
-        print("\n🔧 Parsed JSON:")
-        if json_data:
-            print(json.dumps(json_data, indent=2, ensure_ascii=False))
-        else:
-            print("   ❌ Không parse được JSON")
-
-        print("=" * 80)
-
-        return {
-            "status": "debug_ok",
-            "headers": headers,
-            "body_length": len(body),
-            "json_data": json_data,
-        }
-    except Exception as e:
-        print(f"❌ Debug error: {e}")
-        return {"status": "error", "message": str(e)}
 
 
 @router.post("/scan")
@@ -661,7 +624,8 @@ async def scan_new_databases():
     """
     import requests
 
-    ENV_PATH = r"D:\HTML\a_Copy\rag\.env"
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ENV_PATH = os.path.join(BASE_DIR, "rag", ".env")
     try:
         if os.path.exists(ENV_PATH):
             from dotenv import load_dotenv
