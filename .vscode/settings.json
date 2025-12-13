@@ -1,0 +1,12 @@
+{
+    "python.analysis.extraPaths": [
+        "./rag"
+<<<<<<< HEAD
+    ],
+    "cSpell.words": [
+        "cảnh",
+        "hoạt"
+=======
+>>>>>>> laxanhh
+    ]
+}

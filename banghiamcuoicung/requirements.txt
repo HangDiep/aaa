@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+faster-whisper
+pydub
+websockets
+# python -m venv stt_env : tạo môi trường 
+# uvicorn server:app --reload
+# .\stt_env\Scripts\Activate.ps1

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Assistant</title>
+
+
+  <link rel="stylesheet" href="/view/Chatbot.css">
+</head>
+
+<body>
+  <div class="app">
+
+    <header>
+      <div class="dot"></div>
+      <div>
+        <h1>CHAT THƯ VIỆN</h1>
+        <div class="sub"> Trợ lý thư viện <span id="apiStatus"></span></div>
+      </div>
+
+      <div class="toolbar">
+        <button id="btnNew" class="btn btn-reset">Mới</button>
+      </div>
+    </header>
+
+    <main id="chat" class="chat">
+      <div id="emptyState" class="empty">
+        Chưa có tin nhắn nào — hãy bắt đầu cuộc trò chuyện.
+      </div>
+    </main>
+
+    <section class="composer">
+      <input type="file" id="ocrInput" accept="image/*" hidden />
+
+      <div>
+        <textarea id="input" placeholder="Nhập tin nhắn..."></textarea>
+        <button id="btnOCR" class="btn">📷 OCR</button>
+        <button id="btnRecord" class="btn">🎤 Ghi âm</button>
+      </div>
+
+      <button id="send" class="send">Gửi</button>
+    </section>
+
+    <footer class="footer">
+      © 2025 Chat Assistant UI
+    </footer>
+
+  </div>
+
+  <script src="/view/app.js"></script>
+</body>
+
+</html>
