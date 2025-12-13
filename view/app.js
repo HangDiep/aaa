@@ -27,11 +27,11 @@ const chat = document.getElementById("chat");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const emptyState = document.getElementById("emptyState");
-const btnExport = document.getElementById("btnExport");
 const btnNew = document.getElementById("btnNew");
 const btnRecord = document.getElementById("btnRecord");
 
-const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
+// Transcript: Không lưu lại sau khi F5 (theo yêu cầu)
+const transcript = [];
 
 let sending = false;
 let ws = null;
@@ -87,7 +87,7 @@ function render() {
 }
 
 function persist() {
-  localStorage.setItem("chat_transcript", JSON.stringify(transcript));
+  // Đã tắt lưu transcript theo yêu cầu (F5 là mất)
 }
 
 async function safeParse(res) {
@@ -276,15 +276,6 @@ if (btnRecord) btnRecord.addEventListener("click", async () => {
 // =============================
 // Export & New
 // =============================
-btnExport.addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(transcript, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `chat_transcript_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-});
 
 btnNew.addEventListener("click", () => {
   if (confirm("Bắt đầu phiên chat mới?")) {
