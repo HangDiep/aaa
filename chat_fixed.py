@@ -126,6 +126,30 @@ def ensure_main_db() -> sqlite3.Connection:
         );
         """
     )
+    # Migration: check if session_id exists
+    try:
+        cur.execute("SELECT session_id FROM conversations LIMIT 1")
+    except sqlite3.OperationalError:
+        print("⚠️ [DB Fix] Adding missing column 'session_id'...")
+        try:
+            cur.execute("ALTER TABLE conversations ADD COLUMN session_id TEXT DEFAULT 'default'")
+            print("✅ Added 'session_id' column successfully.")
+        except Exception as e:
+            print(f"❌ Failed to add column session_id: {e}")
+            
+    # Migration: check if created_at exists
+    try:
+        cur.execute("SELECT created_at FROM conversations LIMIT 1")
+    except sqlite3.OperationalError:
+        print("⚠️ [DB Fix] Adding missing column 'created_at'...")
+        try:
+            # SQLite limitation: Cannot ADD COLUMN with non-constant DEFAULT CURRENT_TIMESTAMP
+            # So we add as TEXT (nullable), app handles the value insertion.
+            cur.execute("ALTER TABLE conversations ADD COLUMN created_at TEXT")
+            print("✅ Added 'created_at' column successfully.")
+        except Exception as e:
+            print(f"❌ Failed to add column created_at: {e}")
+
     conn.commit()
     return conn
 def ensure_questions_log_db() -> None:

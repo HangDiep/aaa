@@ -2,8 +2,8 @@
 // Config
 // =============================
 const CHAT_API_URL = localStorage.getItem("CHAT_API_URL") || "/chat";
-// Voice Server chạy riêng ở port 9000 (banghiamcuoicung/server.py)
-const WS_URL = "ws://127.0.0.1:9000/ws";
+// Voice Server đã được mount vào view/app.py (port 8000)
+const WS_URL = "ws://127.0.0.1:8000/ws";
 
 const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";

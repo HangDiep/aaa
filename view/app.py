@@ -32,20 +32,7 @@ except ImportError:
 # -----------------------
 #  MODELS (Whisper, EasyOCR)
 # -----------------------
-# Tương tự chat_fixed, ta load model ở đây hoặc import từ shared helper
-# Để tránh duplicate code và memory, tốt nhất nên gọi endpoint của chat_fixed nếu chạy server kia.
-# Nhưng nếu user muốn chạy file này độc lập, ta cần load lại.
-try:
-    from faster_whisper import WhisperModel
-    from pydub import AudioSegment
-    whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
-    print("🔊 Whisper loaded in view/app.py")
-except Exception as e:
-    print(f"⚠️ Whisper load failed: {e}")
-    whisper_model = None
-
-# OCR sẽ gọi qua helper để tiết kiệm RAM hoặc dùng endpoint /ocr của chat_fixed
-# Ở đây ta implement gọi trực tiếp helper cho tiện
+# OCR calls helper
 try:
     from ocr_helper import ocr_from_image
 except ImportError:
@@ -97,55 +84,15 @@ async def ocr_endpoint(image: UploadFile = File(...)):
         return {"answer": f"Lỗi OCR: {e}"}
 
 # -----------------------
-#  WEBSOCKET: VOICE
+#  WEBSOCKET: VOICE (Mounted from banghiamcuoicung)
 # -----------------------
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    print("🟢 WS connected (view/app.py)")
-    
-    buffer = b""
-    last_time = None
-    SILENCE_GAP = 0.55
-    MIN_SIZE = 4000
-    MAX_SIZE = 150000
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            chunk = base64.b64decode(data)
-            buffer += chunk
-            
-            now = time.time()
-            if last_time is None: last_time = now
-            
-            if now - last_time > SILENCE_GAP and len(buffer) > MIN_SIZE:
-                if whisper_model:
-                    try:
-                        audio = AudioSegment.from_file(io.BytesIO(buffer), format="webm")
-                        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                        samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-                        samples /= 32768.0
-                        
-                        segments, _ = whisper_model.transcribe(samples, language="vi", vad_filter=True)
-                        text = "".join(seg.text for seg in segments).strip()
-                        
-                        if text:
-                            print(f"🎤 User (Voice): {text}")
-                            await websocket.send_text(json.dumps({"sender": "user", "text": text}, ensure_ascii=False))
-                            
-                            answer = process_message(text, session_id="voice_session")
-                            await websocket.send_text(json.dumps({"sender": "bot", "text": answer}, ensure_ascii=False))
-                    except Exception as e:
-                        print("❌ Voice error:", e)
-                
-                buffer = b""
-            
-            if len(buffer) > MAX_SIZE: buffer = b""
-            last_time = now
-            
-    except Exception:
-        print("🔴 WS closed")
+try:
+    from banghiamcuoicung.server import router as voice_router
+    app.include_router(voice_router)
+    print("✅ Voice router mounted from banghiamcuoicung")
+except ImportError as e:
+    print(f"⚠️ Failed to mount voice router: {e}") 
+    # Fallback dummy if needed, but better to fail explicitly or warn
 
 # -----------------------
 #  DUMMY ENDPOINTS
@@ -166,7 +113,7 @@ def ping():
 #  STATIC & HOME
 # -----------------------
 STATIC_DIR = Path(__file__).resolve().parent
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/view", StaticFiles(directory=str(STATIC_DIR)), name="view")
 
 @app.get("/", response_class=HTMLResponse)
 def home():

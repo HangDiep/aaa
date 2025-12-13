@@ -1,6 +1,4 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+from fastapi import APIRouter, WebSocket
 import json
 import base64
 import time
@@ -11,19 +9,20 @@ from pathlib import Path
 
 # Thêm path để import chat_fixed từ thư mục cha
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(PROJECT_ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 # Load Model
 try:
     from faster_whisper import WhisperModel
     from pydub import AudioSegment
-    print("🔊 Loading Whisper model...")
+    print("🔊 Loading Whisper model in banghiamcuoicung...")
     whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
 except Exception as e:
     print(f"❌ Error loading libraries: {e}")
     whisper_model = None
 
-# Import chat logic (cần để trả lời)
+# Import chat logic
 try:
     from chat_fixed import process_message
 except ImportError:
@@ -32,16 +31,9 @@ except ImportError:
     except ImportError:
         process_message = lambda x, **k: "Lỗi: Không tìm thấy module chat."
 
-app = FastAPI()
+router = APIRouter()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.websocket("/ws")
+@router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("🟢 Voice WS connected!")
