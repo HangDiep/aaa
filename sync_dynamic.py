@@ -193,10 +193,10 @@ def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
     except Exception:
         pass
 
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
+    ZIPUR_API_KEY = os.getenv("ZIPUR_API_KEY")
+    ZIPUR_MODEL = os.getenv("ZIPUR_MODEL", "glm-4-plus")
 
-    if not GROQ_API_KEY:
+    if not ZIPUR_API_KEY:
         columns = [sanitize_column_name(k) for k in data.keys()]
         return f"Bảng {table_name} chứa: {', '.join(columns[:5])}"
 
@@ -220,12 +220,12 @@ Chỉ viết mô tả, không thêm gì khác:"""
 
     try:
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {ZIPUR_API_KEY}",
             "Content-Type": "application/json",
         }
 
         payload = {
-            "model": GROQ_MODEL,
+            "model": ZIPUR_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
             "max_tokens": 50,

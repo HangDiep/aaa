@@ -28,8 +28,8 @@ except Exception:
 FAQ_DB_PATH = os.getenv("FAQ_DB_PATH", os.path.join(BASE_DIR, "faq.db"))
 GLOBAL_COLLECTION = "knowledge_base"
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
+ZIPUR_API_KEY = os.getenv("ZIPUR_API_KEY")
+ZIPUR_MODEL = os.getenv("ZIPUR_MODEL", "glm-4-plus")
 
 
 
@@ -107,19 +107,19 @@ def get_description_embeddings(model) -> Dict[str, np.ndarray]:
 # ============================================
 
 def _local_llm(prompt: str, temp: float = 0.2, n: int = 256) -> str:
-    if not GROQ_API_KEY:
+    if not ZIPUR_API_KEY:
         return ""
 
     import requests
     import random
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {ZIPUR_API_KEY}",
         "Content-Type": "application/json",
     }
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": ZIPUR_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temp,
         "max_tokens": n,

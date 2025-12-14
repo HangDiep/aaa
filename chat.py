@@ -28,8 +28,8 @@ try:
 except Exception:
     pass
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
+ZIPUR_API_KEY = os.getenv("ZIPUR_API_KEY")
+ZIPUR_MODEL = os.getenv("ZIPUR_MODEL", "glm-4-plus")
 
 FALLBACK_MSG = "Hiện tại thư viện chưa có thông tin chính xác cho câu này. Bạn mô tả rõ hơn giúp mình nhé."
 
@@ -83,16 +83,16 @@ def llm(prompt: str, temp: float = 0.15, n: int = 1024) -> str:
     Gọi Zhipu AI API với retry logic
     ✅ Giảm timeout, giảm max_tokens mặc định
     """
-    if not GROQ_API_KEY:
+    if not ZIPUR_API_KEY:
         return ""
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {ZIPUR_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "model": GROQ_MODEL,
+        "model": ZIPUR_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temp,
         "max_tokens": n,
@@ -463,7 +463,7 @@ if __name__ == "__main__":
 # User question
 #  → embed
 #  → router chọn collection
-#  → infer_related_nganh (ngữ nghĩa)
+#  
 #  → rewrite câu hỏi
 #  → embed lại
 #  → search_dynamic  ← GIỮ DÒNG NÀY
