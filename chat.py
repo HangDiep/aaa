@@ -14,6 +14,7 @@ import random
 import gc  # ✅ Garbage collector
 from dotenv import load_dotenv
 
+
 # Load .env
 # Load .env
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -264,6 +265,8 @@ def process_message(text: str, history: list = None) -> str:
             search_dynamic,
             get_collections_with_descriptions,
             humanize_answer,
+            
+
         )
 
         # ✅ Lấy model (lazy load)
@@ -299,61 +302,29 @@ def process_message(text: str, history: list = None) -> str:
             return router_result.clarification_question
 
         # BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)
-        rewritten = router_result.rewritten_question or tex
+        rewritten = router_result.rewritten_question or text
+
+        # 🔎 Hiểu ngành bằng ngữ nghĩa
+        
 
         # 
         q_vec_search = model.encode(
             normalize(rewritten), normalize_embeddings=True
         )
+      
 
         # B5: Search vào knowledge_base, filter theo collection nếu có
         collection_name = router_result.target_collection or "global"
         print(f"[PROCESS] Search in collection: {collection_name}")
         
-        # ✅ B5a: Nếu search sách, extract ngành từ câu hỏi
-        ngành_id = None
-        if collection_name == "sch_":
-            import sqlite3
-            try:
-                # LLM extract tên ngành
-                extract_prompt = f"""
-Câu hỏi: "{text}"
-
-Nhiệm vụ: Tìm TÊN NGÀNH trong câu hỏi.
-
-Ví dụ:
-- "Sách về công nghệ thông tin" → Công nghệ thông tin
-- "Gợi ý sách CNTT" → Công nghệ thông tin
-- "Sách kinh tế" → Kinh tế
-- "Sách Python" → null (không có tên ngành cụ thể)
-
-Chỉ trả tên ngành, hoặc "null" nếu không có:
-"""
-                ngành_name = llm(extract_prompt, temp=0.1, n=30).strip()
-                
-                if ngành_name and ngành_name.lower() != "null":
-                    # Tìm id_ngành từ database
-                    conn = sqlite3.connect("faq.db")
-                    cur = conn.cursor()
-                    cur.execute("SELECT id_ngnh FROM ngnh WHERE tn_ngnh LIKE ?", (f"%{ngành_name}%",))
-                    result = cur.fetchone()
-                    conn.close()
-                    
-                    if result:
-                        ngành_id = result[0]
-                        print(f"[DEBUG] 🎯 Phát hiện ngành: '{ngành_name}' (id={ngành_id})")
-            except Exception as e:
-                print(f"[DEBUG] ⚠️ Ngành extraction failed: {e}")
-        
-        candidates = search_dynamic(collection_name, q_vec_search, top_k=10, ngành_id=ngành_id)
-        
-        # ✅ Filter candidates theo ngành_id (nếu có)
-        if ngành_id is not None and candidates:
-            original_count = len(candidates)
-            candidates = [c for c in candidates if c.get("ngành_id") == ngành_id]
-            filtered_count = len(candidates)
-            if filtered_count < original_count:
-                print(f"[DEBUG] 🔍 Filtered by ngành_id={ngành_id}: {original_count} → {filtered_count} candidates")
+        # ✅ B5a: Sử dụng Dynamic Filter từ Router (nếu có)
+    
+        candidates = search_dynamic(
+            collection_name, 
+            q_vec_search, 
+            top_k=10, 
+            
+        )
 
         if not candidates:
             print("[DEBUG] ❌ Không tìm thấy kết quả nào.")
@@ -488,3 +459,14 @@ if __name__ == "__main__":
             print("Hẹn gặp lại bạn ở thư viện nhé! 📚")
             break
         print("Bot:", process_message(q))
+
+# User question
+#  → embed
+#  → router chọn collection
+#  → infer_related_nganh (ngữ nghĩa)
+#  → rewrite câu hỏi
+#  → embed lại
+#  → search_dynamic  ← GIỮ DÒNG NÀY
+#  → rerank_with_llm
+#  → humanize_answer
+

@@ -39,48 +39,31 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
 
 # Global cache for dynamic column mappings
 _column_mappings_cache: Dict[str, Dict[str, str]] = {}
+_collections_cache = {}
+_cache_time = 0
+_description_embeddings_cache = {}
+
+CACHE_TTL = 300  # 5 minutes
+
 
 def get_collections_with_descriptions() -> Dict[str, str]:
-    """
-    Đọc danh sách bảng & mô tả từ SQLite (collections_config).
-    Đồng thời load column_mappings vào cache.
-    """
-    import json
-    
-    global _collections_cache, _cache_time, _column_mappings_cache
+    global _collections_cache, _cache_time
 
-    # cache 5 phút
     if _collections_cache and time.time() - _cache_time < CACHE_TTL:
         return _collections_cache
 
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
-        
-        # Ensure table exists (sync_dynamic might not have run yet)
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='collections_config'")
-        if not cur.fetchone():
-            return {}
-
-        cur.execute("SELECT name, description, column_mappings FROM collections_config WHERE enabled=1")
+        cur.execute("""
+            SELECT name, description 
+            FROM collections_config 
+            WHERE enabled = 1
+        """)
         rows = cur.fetchall()
         conn.close()
 
-        collections = {}
-        for row in rows:
-            tbl_name = row[0]
-            desc = row[1]
-            raw_map = row[2]
-            
-            collections[tbl_name] = desc
-            
-            # Load mapping if available
-            if raw_map:
-                try:
-                    _column_mappings_cache[tbl_name] = json.loads(raw_map)
-                except:
-                    pass
-
+        collections = {r[0]: r[1] for r in rows}
         _collections_cache = collections
         _cache_time = time.time()
 
@@ -88,45 +71,33 @@ def get_collections_with_descriptions() -> Dict[str, str]:
         return collections
 
     except Exception as e:
-        print("[ROUTER] ERROR reading collections_config:", e)
+        print("[ROUTER] ERROR loading collections_config:", e)
         return {}
+
+# =========================
 
 
 def get_description_embeddings(model) -> Dict[str, np.ndarray]:
-    """
-    Cache embedding của các mô tả collection để so sánh nhanh.
-    Mỗi collection có 1 vector đại diện: "name: description"
-    """
     global _description_embeddings_cache
 
     collections = get_collections_with_descriptions()
     if not collections:
         return {}
 
-    if (
-        _description_embeddings_cache
-        and len(_description_embeddings_cache) == len(collections)
-    ):
+    if _description_embeddings_cache and len(_description_embeddings_cache) == len(collections):
         return _description_embeddings_cache
 
     print("[ROUTER] Caching collection description embeddings...")
-    texts: List[str] = []
-    names: List[str] = []
+    texts, names = [], []
 
     for name, desc in collections.items():
-        text = f"{name}: {desc}"
-        texts.append(text)
+        texts.append(f"{name}: {desc}")
         names.append(name)
 
-    try:
-        embeddings = model.encode(texts, normalize_embeddings=True)
-    except Exception as e:
-        print(f"[ROUTER] Error encoding collection descriptions: {e}")
-        return {}
-
-    _description_embeddings_cache = {}
-    for i, name in enumerate(names):
-        _description_embeddings_cache[name] = np.array(embeddings[i])
+    embeddings = model.encode(texts, normalize_embeddings=True)
+    _description_embeddings_cache = {
+        names[i]: np.array(embeddings[i]) for i in range(len(names))
+    }
 
     return _description_embeddings_cache
 
@@ -228,6 +199,12 @@ def cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
     return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
 
 
+
+def _strip_history_from_router_question(q: str) -> str:
+    """Remove injected history block from router_question before doing attribute extraction."""
+    marker = "\n\n[Lịch sử gần đây:"
+    return q.split(marker)[0] if marker in q else q
+
 # ============================================
 #  ROUTER RESULT STRUCT
 # ============================================
@@ -240,6 +217,7 @@ class RouterResult:
     needs_clarification: bool              # có cần hỏi lại user không
     clarification_question: Optional[str]  # câu hỏi để hỏi lại
     confidence: float                      # độ tự tin (0-1)
+    filter: Optional[Dict] = None
 
 
 # ============================================
@@ -269,6 +247,7 @@ def reason_and_route(
             needs_clarification=False,
             clarification_question=None,
             confidence=0.0,
+            filter=None
         )
 
     # ---------- B1: VECTOR ROUTING ----------
@@ -291,6 +270,7 @@ def reason_and_route(
     # Ngưỡng tự tin: tin tưởng vector hơn để nhanh hơn
     if best_score > 0.70 and margin > 0.15:
         print(f"[ROUTER] ✅ Tin tưởng VECTOR, chọn collection: {best_name}")
+
         return RouterResult(
             target_collection=best_name,
             mode="COLLECTION",
@@ -298,6 +278,7 @@ def reason_and_route(
             needs_clarification=False,
             clarification_question=None,
             confidence=float(best_score),
+            
         )
 
     # ---------- B2: LLM REASONING (CoT + Clarification) ----------
@@ -391,6 +372,8 @@ NHIỆM VỤ:
             needs_clarification=needs_clarification,
             clarification_question=clarification_question,
             confidence=confidence,
+            filter=None
+
         )
 
     except Exception as e:
@@ -401,7 +384,7 @@ NHIỆM VỤ:
             rewritten_question=question,
             needs_clarification=False,
             clarification_question=None,
-            confidence=float(best_score),
+            filter=None
         )
 
 
@@ -443,26 +426,17 @@ def route_llm_dynamic(
 #  SEARCH DYNAMIC
 # ============================================
 
-
 def search_dynamic(
-    collection_name: str, q_vec: np.ndarray, top_k: int = 10, ngành_id: int = None
+    collection_name: str, q_vec: np.ndarray, top_k: int = 10
 ) -> List[Dict]:
-    """
-    Search vào Qdrant bằng HTTP API trực tiếp (không dùng client.search)
-    - Global collection: GLOBAL_COLLECTION
-    - Nếu collection_name != 'faq' và != 'global' -> filter theo source_table
-    - Nếu ngành_id được cung cấp -> filter thêm theo id_ngành
-    """
     import requests
-    import json
 
     QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
     url = f"{QDRANT_URL}/collections/{GLOBAL_COLLECTION}/points/search"
 
-    # Body query gửi lên Qdrant
-    body: Dict = {
+    body = {
         "vector": q_vec.tolist(),
         "limit": top_k,
         "with_payload": True,
@@ -470,18 +444,14 @@ def search_dynamic(
         "score_threshold": 0.35,
     }
 
-    # Filter theo collection_name nếu không phải global
+    must_conditions = []
     if collection_name and collection_name not in ("faq", "global"):
-        must_conditions = [
-            {
-                "key": "source_table",
-                "match": {"value": collection_name},
-            }
-        ]
-        
-        # Note: Không filter id_ngnh ở Qdrant vì cấu trúc nested array phức tạp
-        # Sẽ filter trong Python sau khi nhận kết quả
-        
+        must_conditions.append({
+            "key": "source_table",
+            "match": {"value": collection_name},
+        })
+
+    if must_conditions:
         body["filter"] = {"must": must_conditions}
 
     headers = {"Content-Type": "application/json"}
@@ -491,99 +461,42 @@ def search_dynamic(
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-        hits = data.get("result", [])
+        hits = resp.json().get("result", [])
 
-        candidates: List[Dict] = []
+        candidates = []
 
         for hit in hits:
-            score = hit.get("score", 0.0)
             payload = hit.get("payload") or {}
-
             source = (payload.get("source_table") or "general").upper()
 
-            technical_fields = [
-                "vector",
-                "notion_id",
-                "last_updated",
-                "approved",
-                "source_table",
-            ]
+            technical_fields = {
+                "vector", "notion_id", "last_updated",
+                "approved", "source_table"
+            }
 
-            data_items = []
-            
-            # Get table-specific mapping
             table_map = _column_mappings_cache.get(source.lower(), {})
-            
+            data_items = []
+
             for k, v in payload.items():
                 if k not in technical_fields and v not in (None, ""):
-                    # Dynamic mapping lookup with fallback to key itself
-                    display_key = table_map.get(k, k)
-                    data_items.append(f"{display_key}: {v}")
+                    label = table_map.get(k, k)
+                    data_items.append(f"{label}: {v}")
 
-            final_content = " | ".join(data_items)
-
-            question_context = (
-                payload.get("question")
-                or payload.get("title")
-                or payload.get("name")
-                or "Thông tin chi tiết"
-            )
-            
-            # ✅ Extract id_ngnh từ nested array: [{"type": "number", "number": 1}]
-            # ✅ Extract id_ngnh từ nested array: {"type": "array", "array": [{"type": "number", "number": 1}]}
-            extracted_ngành_id = None
-            id_ngnh_raw = payload.get("id_ngnh")
-            
-            # Debug extraction
-            # print(f"[DEBUG-EXTRACT] id_ngnh raw type: {type(id_ngnh_raw)}")
-
-            if id_ngnh_raw:
-                try:
-                    # Nếu là string JSON, parse ra dict/list
-                    if isinstance(id_ngnh_raw, str):
-                        import json
-                        id_ngnh_raw = json.loads(id_ngnh_raw)
-                    
-                    # Case 1: Direct list (ít gặp trong structure này nhưng cứ giữ)
-                    if isinstance(id_ngnh_raw, list) and len(id_ngnh_raw) > 0:
-                        first_item = id_ngnh_raw[0]
-                        if isinstance(first_item, dict):
-                            extracted_ngành_id = first_item.get("number")
-                            
-                    # Case 2: Dict notion format {"type": "array", "array": [...]}
-                    elif isinstance(id_ngnh_raw, dict):
-                        if id_ngnh_raw.get("type") == "array" and "array" in id_ngnh_raw:
-                            array_val = id_ngnh_raw.get("array")
-                            if isinstance(array_val, list) and len(array_val) > 0:
-                                first_item = array_val[0]
-                                if isinstance(first_item, dict) and first_item.get("type") == "number":
-                                    extracted_ngành_id = first_item.get("number")
-                                    
-                    # print(f"[DEBUG-EXTRACT] Extracted ID: {extracted_ngành_id}")
-                except Exception as e:
-                    print(f"[DEBUG-EXTRACT] Error: {e}")
-                    pass
-
-            candidates.append(
-                {
-                    "score": score,
-                    "question": f"[{source}] {question_context}",
-                    "answer": final_content,
-                    "category": source,
-                    "id": hit.get("id"),
-                    "ngành_id": extracted_ngành_id,
-                }
-            )
+            candidates.append({
+                "score": hit.get("score", 0.0),
+                "question": f"[{source}] {payload.get('title') or payload.get('name') or 'Thông tin'}",
+                "answer": " | ".join(data_items),
+                "category": source,
+                "id": hit.get("id"),
+            })
 
         return candidates
 
     except Exception as e:
-        print(f"⚠ Search Error (HTTP): {e}")
+        print(f"⚠ Search Error: {e}")
         return []
 
-
-
+   
 def search_legacy_fallback(
     collection_name: str, q_vec: np.ndarray, top_k: int
 ) -> List[Dict]:

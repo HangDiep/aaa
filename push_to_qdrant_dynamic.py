@@ -60,6 +60,69 @@ def normalize(x: str) -> str:
         return ""
     return " ".join(str(x).lower().strip().split())
 
+
+def flatten_recursive(value):
+    """
+    Hàm đệ quy làm phẳng dữ liệu từ kết quả Notion API.
+    Không cần biết tên cột, chỉ nhìn cấu trúc dữ liệu.
+    
+    Quy tắc:
+    - Dict có 'number' -> lấy number
+    - Dict có 'select' -> lấy name
+    - Dict có 'multi_select' -> lấy list name
+    - List -> đệ quy từng phần tử
+    - Chuỗi JSON (str) bắt đầu bằng '[' hoặc '{' -> thử parse rồi đệ quy
+    """
+    import json
+    
+    if value is None:
+        return None
+        
+    # Trường hợp giá trị 'type': 'number', 'number': 123... (Notion format)
+    if isinstance(value, dict):
+        if "type" in value:
+            t = value.get("type")
+            if t in value: # e.g. "type": "number", "number": ...
+                return flatten_recursive(value[t])
+        
+        # Xử lý các object cụ thể
+        if "name" in value: # Select, Multi-select value
+            return value["name"]
+        if "start" in value: # Date
+            return value["start"]
+        if "email" in value:
+            return value["email"]
+        if "url" in value:
+            return value["url"]
+        if "phone_number" in value:
+            return value["phone_number"]
+        if "number" in value: # Direct number object
+            return value["number"]
+        if "content" in value: # Text
+            return value["content"]
+        
+        # Nếu là dict thường, duyệt qua các key (nhưng Notion thường nested sâu, 
+        # nên tốt rhat là trả về string nếu không match pattern nào)
+        return str(value)
+
+    # Trường hợp list (Relation, Multi-select, People...)
+    if isinstance(value, list):
+        return [flatten_recursive(v) for v in value]
+    
+    # Trường hợp chuỗi nhưng lại là JSON (do SQLite lưu JSON text)
+    if isinstance(value, str):
+        value = value.strip()
+        if (value.startswith("{") and value.endswith("}")) or \
+           (value.startswith("[") and value.endswith("]")):
+            try:
+                parsed = json.loads(value)
+                return flatten_recursive(parsed)
+            except:
+                pass # Không phải JSON valid, dùng string gốc
+    
+    # Giá trị nguyên thủy (str, int, float, bool)
+    return value
+
 def get_table_description_from_sqlite(table_name: str) -> str:
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
@@ -272,11 +335,20 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
             notion_id_str = str(notion_id)
             sqlite_ids.add(notion_id_str)
 
-            sqlite_ids.add(notion_id_str)
+            # 🔥 FLATTEN NGAY TỪ ĐẦU: dùng chung cho embedding + payload
+            flat_row = {}
+            for k, v in row_dict.items():
+                flat_row[k] = flatten_recursive(v)
 
-            text = build_embed_text(row_dict, table_name, mappings)
 
-            payload = {k: v for k, v in row_dict.items() if k != "notion_id"}
+            text = build_embed_text(flat_row, table_name, mappings)
+
+            # ✅ Build payload từ dữ liệu đã flatten (loại bỏ notion_id)
+            payload = {}
+            for k, v in flat_row.items():
+                if k != "notion_id":
+                    payload[k] = v
+
             payload["source_table"] = table_name
             # 🔥 NEW: Gắn mô tả bảng vào Qdrant
             description = get_table_description_from_sqlite(table_name)
@@ -372,6 +444,44 @@ def init_global_collection(client: QdrantClient):
         print(f"Error checking/creating collection: {e}")
 
 
+def create_dynamic_indexes(client: QdrantClient):
+    """
+    Tự động tạo index cho các cột được dùng làm dynamic filter (cấu hình trong SQLite).
+    """
+    import json
+    from qdrant_client.models import PayloadSchemaType
+
+    print("Checking dynamic indexes...")
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT dynamic_filters FROM collections_config WHERE enabled=1")
+        rows = cur.fetchall()
+        conn.close()
+
+        for row in rows:
+            raw = row[0]
+            if not raw:
+                continue
+            try:
+                config = json.loads(raw)
+                target_col = config.get("target_col")
+                if target_col:
+                    print(f"  Creating index for dynamic filter column: {target_col}")
+                    # Mặc định int cho ID, có thể mở rộng logic check type nếu cần
+                    client.create_payload_index(
+                        collection_name=GLOBAL_COLLECTION_NAME,
+                        field_name=target_col,
+                        field_schema=PayloadSchemaType.INTEGER,
+                    )
+            except Exception as e:
+                print(f"  Warning processing filters: {e}")
+                
+    except Exception as e:
+        print(f"Error creating dynamic indexes: {e}")
+
+
+
 def cleanup_old_collections(client: QdrantClient):
     """
     Optional: Xóa các collections cũ lẻ tẻ để dọn rác (nếu trước đây dùng nhiều collection)
@@ -406,6 +516,7 @@ def main():
 
     # 3. Init Global Collection
     init_global_collection(client)
+    create_dynamic_indexes(client)
 
     # 4. Optional: cleanup collections cũ
     # cleanup_old_collections(client)

@@ -78,13 +78,60 @@ def init_collections_config_table():
     except Exception:
         pass # Column likely exists
 
+    # Migration: Add dynamic_filters column
+    try:
+        cur.execute("ALTER TABLE collections_config ADD COLUMN dynamic_filters TEXT")
+        print("  ℹ️ Added dynamic_filters to collections_config")
+    except Exception:
+        pass # Column likely exists
+
     conn.commit()
     conn.close()
     print("✅ collections_config table initialized")
 
 
-# Initialize table on module import
+def seed_default_filters():
+    """
+    Seed (khởi tạo) các filter mặc định cho các bảng hiện có.
+    Dùng để chuyển đổi từ hardcode sang DB-config.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Config mặc định cho bảng Sách (sch_)
+    sch_filters = {
+        "target_col": "id_ngnh",
+        "lookup_table": "ngnh",
+        "lookup_col_name": "tn_ngnh",
+        "lookup_col_id": "id_ngnh",
+        "extraction_prompt": "Tìm TÊN NGÀNH trong câu hỏi. Trả về 'null' nếu không có."
+    }
+    try:
+        import json
+        filters_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False) # Store lookup key as key
+        # Or simplistic structure: We just store the filters dict.
+        # Let's match the structure we used in chat_dynamic_router.py:
+        # DYNAMIC_FILTERS = { "sch_": { ... } }
+        # So in DB for row 'sch_', we store just the inner dict: { "target_col": ... }
+        
+        # Check if sch_ exists and doesn't have filters
+        cur.execute("SELECT name, dynamic_filters FROM collections_config WHERE name='sch_'")
+        row = cur.fetchone()
+        
+        if row and not row[1]: # table exists but no filters
+            print("  🌱 Seeding default filters for 'sch_'...")
+            sch_json = json.dumps(sch_filters, ensure_ascii=False)
+            cur.execute("UPDATE collections_config SET dynamic_filters = ? WHERE name='sch_'", (sch_json,))
+            conn.commit()
+            
+    except Exception as e:
+        print(f"  ⚠️ Error seeding filters: {e}")
+    finally:
+        conn.close()
+
+# Initialize table logic
 init_collections_config_table()
+seed_default_filters()
 
 
 def sanitize_table_name(name: str) -> str:
