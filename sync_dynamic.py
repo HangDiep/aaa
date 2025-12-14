@@ -11,6 +11,9 @@ import sqlite3
 import os
 import json
 import subprocess
+import requests
+import asyncio
+from dotenv import load_dotenv
 
 # Get absolute path to database
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,10 +65,18 @@ def init_collections_config_table():
             enabled INTEGER DEFAULT 1,
             priority INTEGER DEFAULT 0,
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            column_mappings TEXT
         )
         """
     )
+    
+    # Simple migration for existing table
+    try:
+        cur.execute("ALTER TABLE collections_config ADD COLUMN column_mappings TEXT")
+        print("  ℹ️ Added column_mappings to collections_config")
+    except Exception:
+        pass # Column likely exists
 
     conn.commit()
     conn.close()
@@ -194,26 +205,65 @@ Chỉ viết mô tả, không thêm gì khác:"""
         return f"Bảng {table_name} chứa: {columns_str}"
 
 
-def save_to_collections_config(table_name: str, description: str):
+def save_to_collections_config(table_name: str, description: str, mappings: dict = None):
     """
     Lưu thông tin collection vào collections_config
     """
     conn = get_conn()
     cur = conn.cursor()
     now = datetime.utcnow().isoformat()
+    
+    mappings_json = json.dumps(mappings, ensure_ascii=False) if mappings else "{}"
 
     cur.execute(
         """
-        INSERT OR REPLACE INTO collections_config 
-        (name, description, enabled, priority, created_at, updated_at)
-        VALUES (?, ?, 1, 0, ?, ?)
+        INSERT INTO collections_config 
+        (name, description, enabled, priority, created_at, updated_at, column_mappings)
+        VALUES (?, ?, 1, 0, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            description = excluded.description,
+            updated_at = excluded.updated_at,
+            column_mappings = excluded.column_mappings
         """,
-        (table_name, description, now, now),
+        (table_name, description, now, now, mappings_json),
     )
 
     conn.commit()
     conn.close()
     print(f"  💾 Saved to collections_config: {table_name}")
+
+
+def update_collection_mappings(table_name: str, mappings: dict):
+    """
+    Chỉ update column_mappings cho bảng (dùng cho bảng đã tồn tại)
+    """
+    if not mappings:
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    mappings_json = json.dumps(mappings, ensure_ascii=False)
+
+    # Insert ignore to ensure row exists, then update
+    # But simpler: assume row exists or we don't care about description here.
+    # actually scan_new_databases ensures table structure.
+    
+    cur.execute(
+        """
+        UPDATE collections_config
+        SET column_mappings = ?, updated_at = ?
+        WHERE name = ?
+        """,
+        (mappings_json, now, table_name)
+    )
+    
+    # If no row updated (should not happen if created), we could Insert, but description would be missing.
+    # rely on create_table_if_not_exists to handle creation.
+    
+    conn.commit()
+    conn.close()
+
 
 
 def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
@@ -256,7 +306,10 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
 
         print(f"  🤖 Generating description for '{table_name}'...")
         description = generate_table_description(table_name, data)
-        save_to_collections_config(table_name, description)
+        
+        # Capture mappings: {slug: original_name}
+        mappings = {sanitize_column_name(k): k for k in data.keys()}
+        save_to_collections_config(table_name, description, mappings)
 
     else:
         cur.execute(f"PRAGMA table_info({table_name})")
@@ -770,6 +823,19 @@ async def scan_new_databases():
             except Exception:
                 pass
 
+            try:
+                # Capture mappings from properties of the first row (or merged)
+                # to Ensure existing tables get mappings updated
+                if all_rows:
+                    sample_props = all_rows[0].get("properties", {})
+                    # For better coverage, maybe merge keys from a few rows?
+                    # But usually schema is consistent.
+                    mappings = {sanitize_column_name(k): k for k in sample_props.keys()}
+                    update_collection_mappings(table_name, mappings)
+                    print(f"      🗺️  Updated column mappings for '{table_name}'")
+            except Exception as e:
+                print(f"      ⚠️ Failed to update mappings: {e}")
+
             synced_tables.append(table_name)
 
         # AUTO-DELETE stale tables
@@ -848,3 +914,12 @@ def cleanup_deleted_tables_in_sqlite(valid_tables):
         conn.close()
     except Exception as e:
         print(f"⚠ Lỗi khi xóa bảng không còn trong Notion: {e}")
+
+
+if __name__ == "__main__":
+    print("🚀 [MANUAL TRIGGER] Starting Notion Sync...")
+    try:
+        asyncio.run(scan_new_databases())
+        print("✅ [MANUAL TRIGGER] Sync Completed!")
+    except Exception as e:
+        print(f"❌ [MANUAL TRIGGER] Failed: {e}")

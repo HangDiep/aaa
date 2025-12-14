@@ -539,8 +539,8 @@ def push_to_notion(q: str, a: str):
     else:
         # In body đầy đủ để thấy lỗi thật (property nào sai type/tên/option)
         print(f"[Notion] FAIL ({status})\n{body[:2000]}")
-def _ntn_session():
-    s = requests.Session()
+
+def _ntn_session():    s = requests.Session()
     retry = Retry(
         total=1,               # chỉ 1 lần retry nhẹ để không chờ lâu
         backoff_factor=0.4,
@@ -598,57 +598,7 @@ def get_recent_history(session_id: str = None, limit=3, expire_minutes=10):
     except Exception as e:
         print(f"[get_recent_history] Error: {e}")
         return []
-# import requests
 
-# PAGE_ACCESS_TOKEN = "EAAhDPBwKENoBQGsRQo8eIaKZBZA2gsFO5nn9Dcj9dgeGctBZAmuY6OMDeF1Nh3EGddfuva1IITXm2CMHniPJklHXaTvdswRjFLekorS2HXydh3QxibwsL7DY3pKq6qZCbAMG6vc4IBk7vlIjWx6cvKlcl9cQMKYyitNXGSJUp1ZBkp9rsVGY0GRMudEpRb124zQxYbGUx5wZDZD"
-
-# def send_message(user_id, text):
-#     url = f"https://graph.facebook.com/v17.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-
-#     payload = {
-#         "recipient": {"id": user_id},
-#         "message": {"text": text}
-#     }
-
-#     requests.post(url, json=payload)
-# @app.get("/webhook")
-# async def verify(request: Request):
-#     VERIFY_TOKEN = "library_secret"
-
-#     mode = request.query_params.get("hub.mode")
-#     token = request.query_params.get("hub.verify_token")
-#     challenge = request.query_params.get("hub.challenge")
-
-#     if mode == "subscribe" and token == VERIFY_TOKEN:
-#         return int(challenge)  # hoặc {"challenge": challenge}
-
-#     return "Error"
-
-# @app.post("/webhook")
-# async def webhook(request: Request):
-#     data = await request.json()
-
-#     if "entry" in data:
-#         for entry in data["entry"]:
-#             messaging = entry.get("messaging", [])
-#             for msg in messaging:
-#                 sender = msg["sender"]["id"]
-
-#                 if "message" in msg and "text" in msg["message"]:
-#                     user_text = msg["message"]["text"]
-
-#                     # GỌI CHATBOT CỦA BẠN
-#                     reply = process_message(user_text)
-
-#                     # GỬI TRẢ LỜI ĐẾN FACEBOOK
-#                     send_message(sender, reply)
-
-#     return {"status": "ok"}
-
-
-# ============================================
-#  CLI
-# ============================================
 if __name__ == "__main__":
     print("🤖 Chatbot 4-BƯỚC (Phiên bản TỐI ƯU RAM) đã sẵn sàng!")
     conn = ensure_main_db()

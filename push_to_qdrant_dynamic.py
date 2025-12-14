@@ -48,6 +48,8 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GLOBAL_COLLECTION_NAME = "knowledge_base"
 BATCH_SIZE = 32  # batch embed
 
+EXCLUDED_TABLES = {"questions_log", "sync_meta", "collections_config", "conversations"}
+
 
 # ==========================
 #  Helper
@@ -69,13 +71,32 @@ def get_table_description_from_sqlite(table_name: str) -> str:
     except:
         return f"Mô tả bảng {table_name}"
 
+def get_column_mappings(table_name: str) -> dict:
+    """Đọc column_mappings từ collections_config"""
+    import json
+    try:
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT column_mappings FROM collections_config WHERE name=?", (table_name,))
+        row = cur.fetchone()
+        conn.close()
+        
+        if row and row[0]:
+            return json.loads(row[0])
+        return {}
+    except Exception as e:
+        print(f"  ⚠️ Error reading column mappings: {e}")
+        return {}
+
+
 def get_db_connection():
     return sqlite3.connect(FAQ_DB_PATH)
 
 
-def build_embed_text(row_dict: dict, table_name: str) -> str:
+def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> str:
     """
     Tạo text để embed. Ưu tiên các trường quan trọng.
+    Sử dụng mappings để dịch tên cột sang tiếng Việt.
     """
     skip_cols = ["notion_id", "last_updated", "approved"]
     priority_cols = [
@@ -99,7 +120,9 @@ def build_embed_text(row_dict: dict, table_name: str) -> str:
 
     for col, value in row_dict.items():
         if col not in skip_cols and col.lower() not in priority_cols and value:
-            parts.append(f"{col}: {value}")
+            # Display key: mapped name or original key
+            key_display = mappings.get(col, col) if mappings else col
+            parts.append(f"{key_display}: {value}")
 
     return normalize(" ".join(parts))
 
@@ -148,6 +171,28 @@ def get_existing_ids_in_qdrant(client: QdrantClient, table_name: str):
     return existing_ids
 
 
+def delete_entire_table_from_qdrant(client: QdrantClient, table_name: str):
+    """
+    Xóa toàn bộ dữ liệu của một bảng khỏi Qdrant (dùng cho bảng bị exclude)
+    """
+    print(f"\n[CLEANUP] Checking excluded table: {table_name}")
+    existing_ids = get_existing_ids_in_qdrant(client, table_name)
+    
+    if not existing_ids:
+        print("  ✔ No data found in Qdrant. Clean.")
+        return
+
+    print(f"  🗑️ Found {len(existing_ids)} items. Deleting...")
+    try:
+        client.delete(
+            collection_name=GLOBAL_COLLECTION_NAME,
+            points_selector=list(existing_ids),
+        )
+        print("  ✅ Deleted all items.")
+    except Exception as e:
+        print(f"  ⚠️ Error deleting items: {e}")
+
+
 # ==========================
 #  Qdrant Sync per Table
 # ==========================
@@ -186,6 +231,11 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
         conn.close()
         return
 
+    # Load mappings
+    mappings = get_column_mappings(table_name)
+    if mappings:
+        print(f"  🗺️  Loaded {len(mappings)} column mappings for embedding.")
+
     lower_columns = [c.lower() for c in columns]
     has_approved = "approved" in lower_columns
     lower_table_name = table_name.lower()
@@ -222,7 +272,9 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
             notion_id_str = str(notion_id)
             sqlite_ids.add(notion_id_str)
 
-            text = build_embed_text(row_dict, table_name)
+            sqlite_ids.add(notion_id_str)
+
+            text = build_embed_text(row_dict, table_name, mappings)
 
             payload = {k: v for k, v in row_dict.items() if k != "notion_id"}
             payload["source_table"] = table_name
@@ -232,6 +284,10 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
             ids.append(notion_id_str)
             texts_to_embed.append(text)
             payloads.append(payload)
+
+        # DEBUG: Print the first text to prove mapping works
+        if texts_to_embed and total_synced == 0:
+            print(f"  👀 [DEBUG] First text being embedded:\n     \"{texts_to_embed[0]}\"\n")
 
         if texts_to_embed:
             try:
@@ -370,9 +426,20 @@ def main():
         print(f"📌 Running in single-table mode: {specific_table}")
         sync_table_to_global_collection(specific_table, embed_model, client)
     else:
-        print(f"📋 Found {len(all_tables)} tables to sync.")
-        for table in all_tables:
+        # Filter excluded tables
+        filtered_tables = [t for t in all_tables if t not in EXCLUDED_TABLES]
+        
+        print(f"📋 Found {len(filtered_tables)} tables to sync (Excluded: {len(EXCLUDED_TABLES)}).")
+        
+        # 1. Sync valid tables
+        for table in filtered_tables:
             sync_table_to_global_collection(table, embed_model, client)
+            gc.collect()
+
+        # 2. Cleanup excluded tables
+        print("\n🧹 Cleaning up excluded tables from Qdrant...")
+        for table in EXCLUDED_TABLES:
+            delete_entire_table_from_qdrant(client, table)
             gc.collect()
 
     print("\n🎉 INCREMENTAL SYNC COMPLETED SUCCESSFULLY!")

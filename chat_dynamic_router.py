@@ -31,63 +31,64 @@ GLOBAL_COLLECTION = "knowledge_base"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "glm-4-plus")
 
+
+
 # ============================================
 #  COLLECTIONS CONFIG CACHE
 # ============================================
 
-_collections_cache: Optional[Dict[str, str]] = None
-_cache_time = 0
-CACHE_TTL = 300  # 5 phút để làm gì nhỉ
-_description_embeddings_cache: Optional[Dict[str, np.ndarray]] = None
-
+# Global cache for dynamic column mappings
+_column_mappings_cache: Dict[str, Dict[str, str]] = {}
 
 def get_collections_with_descriptions() -> Dict[str, str]:
     """
-    Đọc danh sách bảng (source_table) & mô tả bảng (table_description)
-    TRỰC TIẾP từ Qdrant.
+    Đọc danh sách bảng & mô tả từ SQLite (collections_config).
+    Đồng thời load column_mappings vào cache.
     """
-    import requests
-
-    global _collections_cache, _cache_time
+    import json
+    
+    global _collections_cache, _cache_time, _column_mappings_cache
 
     # cache 5 phút
     if _collections_cache and time.time() - _cache_time < CACHE_TTL:
         return _collections_cache
 
-    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
-    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-
-    url = f"{QDRANT_URL}/collections/{GLOBAL_COLLECTION}/points/scroll"
-    headers = {"Content-Type": "application/json"}
-    if QDRANT_API_KEY:
-        headers["api-key"] = QDRANT_API_KEY
-
-    body = {"limit": 2000, "with_payload": True, "with_vector": False}
-
     try:
-        resp = requests.post(url, headers=headers, json=body)
-        resp.raise_for_status()
-        data = resp.json()
+        conn = sqlite3.connect(FAQ_DB_PATH)
+        cur = conn.cursor()
+        
+        # Ensure table exists (sync_dynamic might not have run yet)
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='collections_config'")
+        if not cur.fetchone():
+            return {}
 
-        points = data.get("result", {}).get("points", [])
+        cur.execute("SELECT name, description, column_mappings FROM collections_config WHERE enabled=1")
+        rows = cur.fetchall()
+        conn.close()
+
         collections = {}
-
-        for p in points:
-            payload = p.get("payload", {})
-            table = payload.get("source_table")
-            desc = payload.get("table_description") or f"Bảng {table}"
-
-            if table and table not in collections:
-                collections[table] = desc
+        for row in rows:
+            tbl_name = row[0]
+            desc = row[1]
+            raw_map = row[2]
+            
+            collections[tbl_name] = desc
+            
+            # Load mapping if available
+            if raw_map:
+                try:
+                    _column_mappings_cache[tbl_name] = json.loads(raw_map)
+                except:
+                    pass
 
         _collections_cache = collections
         _cache_time = time.time()
 
-        print("[ROUTER] Qdrant collections + descriptions:", collections)
+        print(f"[ROUTER] Loaded {len(collections)} collections from SQLite.")
         return collections
 
     except Exception as e:
-        print("[ROUTER] ERROR reading collections from Qdrant:", e)
+        print("[ROUTER] ERROR reading collections_config:", e)
         return {}
 
 
@@ -319,6 +320,7 @@ CÁC BẢNG DỮ LIỆU (COLLECTIONS) CÓ THỂ LIÊN QUAN:
 HƯỚNG DẪN QUAN TRỌNG:
 - Nếu user hỏi về SÁCH (gợi ý sách, tìm sách, sách nào, có sách...) → LUÔN chọn "sch_"
 - Nếu user hỏi về NGÀNH HỌC (ngành gì, mã ngành...) → Chọn "ngnh"
+- Nếu user hỏi về SỐ LƯỢNG (bao nhiêu, thống kê, có bao nhiêu...) hoặc QUY MÔ → Chọn "faq_"
 - Nếu user hỏi về FAQ (câu hỏi thường gặp, hỏi đáp...) → Chọn "faq_"
 
 VÍ DỤ:
@@ -509,9 +511,15 @@ def search_dynamic(
             ]
 
             data_items = []
+            
+            # Get table-specific mapping
+            table_map = _column_mappings_cache.get(source.lower(), {})
+            
             for k, v in payload.items():
                 if k not in technical_fields and v not in (None, ""):
-                    data_items.append(f"{k}: {v}")
+                    # Dynamic mapping lookup with fallback to key itself
+                    display_key = table_map.get(k, k)
+                    data_items.append(f"{display_key}: {v}")
 
             final_content = " | ".join(data_items)
 

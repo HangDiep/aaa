@@ -247,7 +247,7 @@ def process_message(text: str, history: list = None) -> str:
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
     
-    # Build context from history
+    # Bước 1 nhận câu hỏi lấy lịch sử gần nhất
     context_str = ""
     if history:
         context_lines = []
@@ -269,11 +269,11 @@ def process_message(text: str, history: list = None) -> str:
         # ✅ Lấy model (lazy load)
         model = get_model()
 
-        # B0: Tạo vector 1 lần duy nhất
+        # chuẩn hoá và tạo vector
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
 
-        # B1: Greeting
+       
         if is_greeting(text) and len(text.split()) <= 4:
             collections = get_collections_with_descriptions()
             collection_names = ", ".join(
@@ -285,7 +285,8 @@ def process_message(text: str, history: list = None) -> str:
             )
 
         # B2: Multi-step Reasoning Router (CoT + Clarification)
-        # Inject context if available
+        # “nó”, “cái đó”, “cuốn này” là gì
+        # Ý câu hỏi hiện tại dựa trên hội thoại trước 
         router_question = text
         if context_str:
             router_question = f"{text}\n\n[Lịch sử gần đây:\n{context_str}]"
@@ -297,14 +298,10 @@ def process_message(text: str, history: list = None) -> str:
             print("[PROCESS] Clarification required → hỏi lại người dùng.")
             return router_result.clarification_question
 
-        # B3: Lấy câu hỏi đã làm rõ (rewritten_question)
-        rewritten = router_result.rewritten_question or text
+        # BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)
+        rewritten = router_result.rewritten_question or tex
 
-        # Tùy chọn: nếu bạn vẫn muốn thêm lớp rewrite_question cũ
-        # rewritten2 = rewrite_question(rewritten)
-        # if rewritten2: rewritten = rewritten2
-
-        # B4: Embed lại cho search
+        # 
         q_vec_search = model.encode(
             normalize(rewritten), normalize_embeddings=True
         )
@@ -403,7 +400,6 @@ Ví dụ:
                     # ✅ LLM Filter: Lọc chỉ giữ kết quả liên quan
                     filter_prompt = f"""
 Câu hỏi: "{text}"
-
 Danh sách kết quả:
 {chr(10).join([f"{i+1}. {c['answer'][:200]}" for i, c in enumerate(top_n)])}
 
@@ -433,7 +429,6 @@ Trả về danh sách số thứ tự (ví dụ: 2,5,7), KHÔNG giải thích:
                         f"{i+1}. {c['answer']}" 
                         for i, c in enumerate(top_n)
                     ])
-                    
                     print(f"[DEBUG] ✅ Trả về {actual_count} kết quả")
                     print(f"[DEBUG] 📝 Raw answer (before humanize):")
                     print(combined_answer)
@@ -485,11 +480,6 @@ Trả về danh sách số thứ tự (ví dụ: 2,5,7), KHÔNG giải thích:
     finally:
         gc.collect()
         cleanup_model_if_idle()
-
-
-# ============================================
-#  CLI
-# ============================================
 if __name__ == "__main__":
     print("🤖 Chatbot 4-BƯỚC (Phiên bản TỐI ƯU RAM) đã sẵn sàng!")
     while True:
