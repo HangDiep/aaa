@@ -22,11 +22,6 @@ print(f"[DYNAMIC SYNC] Using database: {DB_PATH}")
 # Tạo router
 router = APIRouter(prefix="/notion/dynamic", tags=["notion-dynamic-sync"])
 
-
-# ==========================
-#  Pydantic models
-# ==========================
-
 class DynamicSyncPayload(BaseModel):
     """
     Generic payload cho bất kỳ bảng nào
@@ -35,21 +30,14 @@ class DynamicSyncPayload(BaseModel):
     table_name: str  # Tên bảng (VD: thu_vien, faq, books...)
     data: Dict[str, Any]  # Dữ liệu động từ Notion
     approved: Optional[bool] = True
-
-
 class DeletePayload(BaseModel):
     notion_id: str
     table_name: str
-
-
 # ==========================
 #  DB helper
 # ==========================
-
 def get_conn():
     return sqlite3.connect(DB_PATH)
-
-
 def init_collections_config_table():
     """
     Tạo bảng collections_config để lưu metadata của các collections
@@ -70,7 +58,6 @@ def init_collections_config_table():
         )
         """
     )
-    
     # Simple migration for existing table
     try:
         cur.execute("ALTER TABLE collections_config ADD COLUMN column_mappings TEXT")
@@ -88,13 +75,7 @@ def init_collections_config_table():
     conn.commit()
     conn.close()
     print("✅ collections_config table initialized")
-
-
 def seed_default_filters():
-    """
-    Seed (khởi tạo) các filter mặc định cho các bảng hiện có.
-    Dùng để chuyển đổi từ hardcode sang DB-config.
-    """
     conn = get_conn()
     cur = conn.cursor()
     
@@ -108,13 +89,7 @@ def seed_default_filters():
     }
     try:
         import json
-        filters_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False) # Store lookup key as key
-        # Or simplistic structure: We just store the filters dict.
-        # Let's match the structure we used in chat_dynamic_router.py:
-        # DYNAMIC_FILTERS = { "sch_": { ... } }
-        # So in DB for row 'sch_', we store just the inner dict: { "target_col": ... }
-        
-        # Check if sch_ exists and doesn't have filters
+        filters_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False) # 
         cur.execute("SELECT name, dynamic_filters FROM collections_config WHERE name='sch_'")
         row = cur.fetchone()
         
@@ -132,8 +107,6 @@ def seed_default_filters():
 # Initialize table logic
 init_collections_config_table()
 seed_default_filters()
-
-
 def sanitize_table_name(name: str) -> str:
     """Làm sạch tên bảng (chỉ cho phép a-z, 0-9, _)"""
     import re
@@ -141,8 +114,6 @@ def sanitize_table_name(name: str) -> str:
     clean = name.lower().replace(" ", "_").replace("-", "_")
     clean = re.sub(r"[^a-z0-9_]", "", clean)
     return clean
-
-
 def sanitize_column_name(name: str) -> str:
     """Làm sạch tên cột"""
     import re
@@ -150,8 +121,6 @@ def sanitize_column_name(name: str) -> str:
     clean = name.lower().replace(" ", "_").replace("-", "_")
     clean = re.sub(r"[^a-z0-9_]", "", clean)
     return clean
-
-
 def infer_sql_type(value: Any) -> str:
     """Tự động phát hiện kiểu dữ liệu SQL"""
     if value is None:
@@ -164,8 +133,6 @@ def infer_sql_type(value: Any) -> str:
         return "REAL"
     else:
         return "TEXT"
-
-
 def sanitize_sql_value(value):
     """
     Chuyển đổi list/dict thành JSON string để lưu vào SQLite
@@ -174,8 +141,6 @@ def sanitize_sql_value(value):
     if isinstance(value, (list, dict)):
         return json.dumps(value, ensure_ascii=False)
     return value
-
-
 def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
     """
     Tự động tạo mô tả cho bảng mới bằng LLM
@@ -250,8 +215,6 @@ Chỉ viết mô tả, không thêm gì khác:"""
         print(f"⚠️ Lỗi generate description: {e}")
         columns_str = ", ".join(columns[:5])
         return f"Bảng {table_name} chứa: {columns_str}"
-
-
 def save_to_collections_config(table_name: str, description: str, mappings: dict = None):
     """
     Lưu thông tin collection vào collections_config
@@ -278,8 +241,6 @@ def save_to_collections_config(table_name: str, description: str, mappings: dict
     conn.commit()
     conn.close()
     print(f"  💾 Saved to collections_config: {table_name}")
-
-
 def update_collection_mappings(table_name: str, mappings: dict):
     """
     Chỉ update column_mappings cho bảng (dùng cho bảng đã tồn tại)
@@ -310,9 +271,6 @@ def update_collection_mappings(table_name: str, mappings: dict):
     
     conn.commit()
     conn.close()
-
-
-
 def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
     """
     Tự động tạo bảng SQLite nếu chưa tồn tại.
@@ -331,7 +289,6 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
         "last_updated": "TEXT",
         "approved": "INTEGER DEFAULT 1",
     }
-
     for key, value in data.items():
         col_name = sanitize_column_name(key)
         if col_name not in expected_columns:
@@ -380,8 +337,6 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
             print("  ✅ Schema migration completed.")
 
     conn.close()
-
-
 def upsert_dynamic_data(
     table_name: str, notion_id: str, data: Dict[str, Any], approved: bool = True
 ):
@@ -434,8 +389,6 @@ def upsert_dynamic_data(
         conn.commit()
     finally:
         conn.close()
-
-
 def delete_dynamic_data(table_name: str, notion_id: str):
     """Xóa dữ liệu khỏi bảng động"""
     conn = get_conn()
@@ -443,13 +396,9 @@ def delete_dynamic_data(table_name: str, notion_id: str):
     cur.execute(f"DELETE FROM {table_name} WHERE notion_id = ?", (notion_id,))
     conn.commit()
     conn.close()
-
-
 # ==========================
 #  Notion Parser Helper
 # ==========================
-
-
 def parse_notion_properties(props: Dict[str, Any]) -> Dict[str, Any]:
     """
     Flatten nested Notion properties into simple key-value pairs.
@@ -507,13 +456,9 @@ def parse_notion_properties(props: Dict[str, Any]) -> Dict[str, Any]:
         data[key] = sanitize_sql_value(value)
 
     return data
-
-
 # ==========================
 #  API Endpoints
 # ==========================
-
-
 @router.post("/sync")
 async def dynamic_sync(request: Request):
     """
@@ -624,8 +569,6 @@ async def dynamic_sync(request: Request):
     except Exception as e:
         print(f"❌ [DYNAMIC SYNC] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/delete")
 @router.delete("/delete")
 async def dynamic_delete(payload: DeletePayload):
@@ -651,8 +594,6 @@ async def dynamic_delete(payload: DeletePayload):
     except Exception as e:
         print(f"❌ [DYNAMIC DELETE] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/tables")
 async def list_tables():
     """
@@ -668,8 +609,6 @@ async def list_tables():
         return {"status": "ok", "tables": tables, "count": len(tables)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/schema/{table_name}")
 async def get_table_schema(table_name: str):
     """
@@ -706,16 +645,6 @@ async def get_table_schema(table_name: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==========================
-#  DEBUG endpoint
-# ==========================
-
-
-
-
-
 @router.post("/scan")
 async def scan_new_databases():
     """
@@ -862,7 +791,7 @@ async def scan_new_databases():
 
             try:
                 subprocess.Popen(
-                    ["python", "push_to_qdrant_dynamic.py", table_name],
+                    ["python", "push_to_qdrant_dynamic.py", table_name],# gọi push to qdrant
                     cwd=os.path.dirname(os.path.abspath(__file__)),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
