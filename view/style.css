@@ -321,6 +321,82 @@ body {
     border-top: 1px solid rgba(255,255,255,0.1);
     font-size: 14px;
 }
+/* ================= CHAT POPUP ================= */
+
+/* Bong bóng chat */
+.chat-bubble {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    width: 62px;
+    height: 62px;
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    z-index: 9999;
+}
+
+.chat-bubble i {
+    color: white;
+    font-size: 26px;
+}
+
+/* Popup */
+.chat-popup {
+    position: fixed;
+    bottom: 100px;
+    right: 22px;
+    width: 420px;
+    height: 600px;
+    background: #0b1020;
+    border-radius: 18px;
+    box-shadow: 0 25px 60px rgba(0,0,0,.45);
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    z-index: 10000;
+}
+
+/* Header */
+.chat-header {
+    height: 48px;
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    font-weight: 600;
+}
+
+.chat-header button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+/* iframe */
+.chat-popup iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+    .chat-popup {
+        width: calc(100vw - 20px);
+        height: calc(100vh - 120px);
+        right: 10px;
+        bottom: 90px;
+    }
+}
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 1024px) {

@@ -135,20 +135,21 @@
             © 2025 Thư viện Trường Đại học Tây Nguyên. All rights reserved.
         </div>
     </footer>
-    <iframe
-  src="/chatbot"
-  style="
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 420px;
-    height: 600px;
-    border: none;
-    border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,.4);
-    z-index: 9999;
-  ">
-</iframe>
+    <!-- Chat bubble -->
+    <div id="chatBubble" class="chat-bubble">
+    <i class="fas fa-comments"></i>
+    </div>
+
+    <!-- Chat popup -->
+    <div id="chatPopup" class="chat-popup">
+    <div class="chat-header">
+        <span>Trợ lý Thư viện</span>
+        <button id="closeChat">✕</button>
+    </div>
+
+    <iframe src="/chatbot"></iframe>
+    </div>
+
 
     <script src="/static/script.js"></script>
 </body>

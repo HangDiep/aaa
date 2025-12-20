@@ -2,6 +2,9 @@
 // Config
 // =============================
 const CHAT_API_URL = localStorage.getItem("CHAT_API_URL") || "/chat"; // cùng origin → không CORS
+// Voice Server đã được mount vào view/app.py (port 8000)
+const WS_URL = "ws://127.0.0.1:8000/ws";
+
 const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
 // =============================
@@ -11,15 +14,19 @@ const chat = document.getElementById("chat");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const emptyState = document.getElementById("emptyState");
-const btnExport = document.getElementById("btnExport");
-const btnClear = document.getElementById("btnClear");
+const btnNew = document.getElementById("btnNew");
+const btnRecord = document.getElementById("btnRecord");
 // THÊM 3 DÒNG NÀY – QUAN TRỌNG NHẤT
 const imageInput = document.getElementById("imageInput");          // input file thật
 const pickImageBtn = document.getElementById("pickImage");         // nút bấm
 const imagePreview = document.getElementById("imagePreview");      // vùng preview
 
 const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
+
 let sending = false;
+let ws = null;
+let mediaRecorder = null;
+let audioChunks = [];
 // =============================
 // Utils / UI helpers
 // =============================
@@ -36,6 +43,7 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function msgTemplate(role, text, time) {
+  const content = role === "bot" ? (text || "") : escapeHtml(text || "").replace(/\n/g, "<br/>");
   return `
     <article class="msg ${role}">
       <div class="avatar" aria-hidden="true">${role === "bot" ? "🤖" : "🧑"}</div>
@@ -98,7 +106,9 @@ async function send() {
   if (imageInput) imageInput.value = "";
   if (imagePreview) imagePreview.innerHTML = "";  // Xóa preview sau khi gửi
   const now = new Date();
-  const record = { user_message: text || "[Ảnh]", bot_reply: "…", time: formatTime(now) };
+  const record = { 
+    user_message: text || "[Ảnh]", bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`, 
+    time: formatTime(now) };
   transcript.push(record);
   persist();
   render();
@@ -130,6 +140,79 @@ async function send() {
     sendBtn.textContent = "Gửi";
   }
 }
+
+// =============================
+// WebSocket Voice Recognition
+// =============================
+function initWebSocket() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => console.log("WS connected");
+  ws.onerror = () => console.log("WS error");
+  ws.onclose = () => console.log("WS closed");
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.sender === "user") {
+      transcript.push({
+        user_message: msg.text,
+        bot_reply: "",
+        time: formatTime()
+      });
+    }
+
+    if (msg.sender === "bot") {
+      transcript.push({
+        user_message: "",
+        bot_reply: msg.text,
+        time: formatTime()
+      });
+    }
+
+    persist();
+    render();
+  };
+}
+
+// Start WebSocket
+initWebSocket();
+
+// =============================
+// Voice Recording (WebSocket Stream)
+// =============================
+if (btnRecord) btnRecord.addEventListener("click", async () => {
+
+  if (!mediaRecorder) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+          const buffer = await event.data.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = "";
+          bytes.forEach(b => binary += String.fromCharCode(b));
+          const base64 = btoa(binary);
+          ws.send(base64);
+        }
+      };
+    } catch (e) {
+      alert("Không thể truy cập microphone: " + e.message);
+      return;
+    }
+  }
+
+  if (mediaRecorder.state === "inactive") { mediaRecorder.start(300); // gửi 0.3s một lần 
+  btnRecord.textContent = "⏹ Dừng"; 
+  btnRecord.classList.add("recording"); } 
+  else { 
+    mediaRecorder.stop(); 
+    btnRecord.textContent = "🎤"; 
+    btnRecord.classList.remove("recording"); }
+});
+
 // =============================
 // Events
 // =============================
@@ -149,34 +232,6 @@ document.querySelectorAll(".chip").forEach((ch) => {
     input.focus();
   });
 });
-if (btnExport) {
-  btnExport.addEventListener("click", () => {
-    const payload = transcript.map((r) => ({
-      user_message: r.user_message,
-      bot_reply: r.bot_reply,
-      intent_tag: null,
-      confidence: null,
-      time: r.time,
-    }));
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `chat_transcript_${Date.now()}.json`,
-    });
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-}
-if (btnClear) {
-  btnClear.addEventListener("click", () => {
-    if (confirm("Xóa toàn bộ phiên chat hiện tại?")) {
-      transcript.splice(0, transcript.length);
-      persist();
-      render();
-    }
-  });
-}
 // =============================
 // Xử lý chọn ảnh + preview + gửi kèm tin nhắn
 // =============================
@@ -190,24 +245,26 @@ if (pickImageBtn && imageInput) {
 if (imageInput) {
   imageInput.addEventListener("change", () => {
     const file = imageInput.files[0];
-    if (!file) {
-      imagePreview.innerHTML = "";
-      return;
-    }
+    if (!file) return;
 
     const url = URL.createObjectURL(file);
     imagePreview.innerHTML = `
-      <div style="padding:8px 0; color:#22d3ee; font-size:13px; display:flex; align-items:center; justify-content:space-between;">
-        <div>
-          Đã chọn: <strong>${escapeHtml(file.name)}</strong> (${(file.size/1024).toFixed(1)} KB)
-        </div>
-        <span style="color:#94a3b8; cursor:pointer; text-decoration:underline;" 
-              onclick="document.getElementById('imageInput').value=''; document.getElementById('imagePreview').innerHTML='';">
-          Hủy
-        </span>
+     <div class="thumb">
+      <img src="${url}">
+    </div>
+    
+    <div class="meta">
+        Đã chọn: <strong>${escapeHtml(file.name)}</strong>
+        (${(file.size / 1024).toFixed(1)} KB)
       </div>
-      <img src="${url}" style="max-width:100%; max-height:300px; border-radius:8px; margin-top:8px; border:1px solid #334155;">
+
+      <span class="remove" id="removeImage">Hủy</span>
     `;
+
+    document.getElementById("removeImage").onclick = () => {
+      imageInput.value = "";
+      imagePreview.innerHTML = "";
+    };
 
     // Tự động focus vào ô nhập để người dùng gõ thêm caption nếu muốn
     input && input.focus();
@@ -270,7 +327,7 @@ async function send() {
   // Lưu vào transcript (chỉ text + ghi chú ảnh)
   transcript.push({
     user_message: text || "[ảnh]",
-    bot_reply: "…",
+    bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`,
     time: formatTime(now)
   });
   persist();
@@ -307,4 +364,12 @@ async function send() {
     sendBtn.textContent = "Gửi";
   }
 }
+
+btnNew.addEventListener("click", () => {
+  if (confirm("Bắt đầu phiên chat mới?")) {
+    transcript.length = 0;
+    persist();
+    render();
+  }
+});
 render();

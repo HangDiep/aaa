@@ -13,3 +13,21 @@ document.querySelectorAll(".sidebar-nav a").forEach(link => {
         overlay.classList.remove("active");
     });
 });
+// ================= CHAT POPUP =================
+const chatBubble = document.getElementById("chatBubble");
+const chatPopup  = document.getElementById("chatPopup");
+const closeChat  = document.getElementById("closeChat");
+
+if (chatBubble && chatPopup) {
+    chatBubble.addEventListener("click", () => {
+        chatPopup.style.display = "flex";
+        chatBubble.style.display = "none";
+    });
+}
+
+if (closeChat) {
+    closeChat.addEventListener("click", () => {
+        chatPopup.style.display = "none";
+        chatBubble.style.display = "flex";
+    });
+}
