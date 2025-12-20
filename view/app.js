@@ -21,8 +21,7 @@ const imageInput = document.getElementById("imageInput");          // input file
 const pickImageBtn = document.getElementById("pickImage");         // nút bấm
 const imagePreview = document.getElementById("imagePreview");      // vùng preview
 
-const transcript = JSON.parse(localStorage.getItem("chat_transcript") || "[]");
-
+const transcript = [];
 let sending = false;
 let ws = null;
 let mediaRecorder = null;
@@ -67,8 +66,9 @@ function render() {
   chat.scrollTop = chat.scrollHeight;
 }
 function persist() {
-  localStorage.setItem("chat_transcript", JSON.stringify(transcript));
+  // KHÔNG LƯU GÌ – F5 / đóng tab là mất
 }
+
 async function safeParse(res) {
   const txt = await res.text(); // luôn đọc text trước
   try {
