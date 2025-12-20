@@ -56,7 +56,6 @@ def get_model():
         print("🔄 Đang dùng fallback model keepitreal/vietnamese-sbert...")
         embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
         print("✅ Load fallback thành công!")
-    
     last_model_use = time.time()
     return embed_model
 
@@ -275,8 +274,6 @@ def process_message(text: str, history: list = None) -> str:
         # chuẩn hoá và tạo vector
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
-
-       
         if is_greeting(text) and len(text.split()) <= 4:
             collections = get_collections_with_descriptions()
             collection_names = ", ".join(

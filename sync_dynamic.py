@@ -271,6 +271,7 @@ def update_collection_mappings(table_name: str, mappings: dict):
     
     conn.commit()
     conn.close()
+# Tự tạo bảng SQLite khi thấy database mới
 def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
     """
     Tự động tạo bảng SQLite nếu chưa tồn tại.
@@ -309,7 +310,7 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
         print(f"  ✅ Table '{table_name}' created successfully!")
 
         print(f"  🤖 Generating description for '{table_name}'...")
-        description = generate_table_description(table_name, data)
+        description = generate_table_description(table_name, data) # Tự tạo description
         
         # Capture mappings: {slug: original_name}
         mappings = {sanitize_column_name(k): k for k in data.keys()}
@@ -890,8 +891,6 @@ def cleanup_deleted_tables_in_sqlite(valid_tables):
         conn.close()
     except Exception as e:
         print(f"⚠ Lỗi khi xóa bảng không còn trong Notion: {e}")
-
-
 if __name__ == "__main__":
     print("🚀 [MANUAL TRIGGER] Starting Notion Sync...")
     try:

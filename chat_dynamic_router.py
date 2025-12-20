@@ -314,9 +314,8 @@ VÍ DỤ:
 NHIỆM VỤ:
 1. Hiểu người dùng đang hỏi về loại thông tin gì
 2. Quyết định câu hỏi nên tra trong bảng nào
-3. Nếu câu hỏi QUÁ MƠ HỒ → đề xuất hỏi lại
+3. Nếu câu hỏi QUÁ MƠ HỒ → đề xuất hỏi lại 
 4. Viết lại câu hỏi rõ nghĩa hơn
-
 ĐỊNH DẠNG TRẢ LỜI (JSON, KHÔNG GIẢI THÍCH THÊM):
 {{
   "target_collection": "<tên collection hoặc null nếu GLOBAL>",
@@ -326,8 +325,9 @@ NHIỆM VỤ:
   "confidence": 0.0-1.0
 }}
 
-"""
 
+"""
+# chú ý đoạn này 
     try:
         raw = llm_func(prompt, temp=0.2, n=256)
         import json
