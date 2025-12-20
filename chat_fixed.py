@@ -26,7 +26,12 @@ print("✅ Dynamic sync endpoints included: /notion/dynamic/sync, /notion/dynami
 # ============== RELOAD CONFIG ENDPOINT ==============
 @app.get("/")
 async def root():
-    """Redirect to chatbot interface"""
+    """Trang chủ Landing Page"""
+    return FileResponse("view/index.html")
+
+@app.get("/chatbot")
+async def chatbot_page():
+    """Giao diện Chatbot (dùng cho iframe)"""
     return FileResponse("view/Chatbot.html")
 
 @app.post("/reload-config")
@@ -185,8 +190,19 @@ def log_question_for_notion(question: str) -> None:
 
 def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-def process_message(sentence: str, session_id: str = "default") -> str:
+def process_message(sentence: str, session_id: str = "default", image_path: str = None) -> str:
     sentence = (sentence or "").strip()
+
+    # 0) Xử lý ảnh (OCR) nếu có
+    if image_path:
+        from ocr_helper import ocr_from_image
+        ocr_text = ocr_from_image(image_path)
+        if ocr_text:
+            print(f"[PROCESS] OCR Result: {ocr_text}")
+            if sentence:
+                sentence = f"{sentence}\n\n[Nội dung từ ảnh]: {ocr_text}"
+            else:
+                sentence = f"[Nội dung từ ảnh]: {ocr_text}"
 
     if not sentence:
         reply = "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
@@ -201,7 +217,7 @@ def process_message(sentence: str, session_id: str = "default") -> str:
         
         # 2) GỌI NÃO CHÍNH Ở FILE chat.py (với history)
         try:
-            reply = chat.process_message(sentence, history=history)
+            reply = chat.process_message(sentence, history=history, image_path=image_path)
         except Exception as e:
             print("[chat_fixed] Lỗi gọi chat.process_message:", e)
             reply = "Hiện tại hệ thống đang gặp lỗi khi xử lý câu hỏi của bạn."
@@ -540,7 +556,9 @@ def push_to_notion(q: str, a: str):
         # In body đầy đủ để thấy lỗi thật (property nào sai type/tên/option)
         print(f"[Notion] FAIL ({status})\n{body[:2000]}")
 
-def _ntn_session():    s = requests.Session()
+
+def _ntn_session():    
+    s = requests.Session()
     retry = Retry(
         total=1,               # chỉ 1 lần retry nhẹ để không chờ lâu
         backoff_factor=0.4,

@@ -431,6 +431,7 @@ def init_global_collection(client: QdrantClient):
             client.create_collection(
                 collection_name=GLOBAL_COLLECTION_NAME,
                 vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
+                check_compatibility=False
             )
             client.create_payload_index(
                 collection_name=GLOBAL_COLLECTION_NAME,

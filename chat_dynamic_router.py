@@ -384,6 +384,7 @@ NHIỆM VỤ:
             rewritten_question=question,
             needs_clarification=False,
             clarification_question=None,
+            confidence=0.0,
             filter=None
         )
 

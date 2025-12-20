@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
 from fastapi.responses import HTMLResponse
-from chat_fixed import process_message
+# from chat_fixed import process_message (Đã bỏ để import ở dưới sau khi append path)
 
 import os
 import uuid
@@ -19,8 +19,9 @@ app.mount("/static", StaticFiles(directory="view"), name="static")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-# Bây giờ mới import, vì process_message đã được cập nhật nhận image_path
 from chat_fixed import process_message
+
+# Bây giờ mới import, vì process_message đã được cập nhật nhận image_path
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +30,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ================= BACKGROUND SYNC (3-MIN AUTO SCAN) =================
+import asyncio
+from sync_dynamic import scan_new_databases
+
+@app.on_event("startup")
+async def startup_event():
+    """Khởi động quét Notion tự động mỗi 3 phút."""
+    asyncio.create_task(run_auto_scan_loop())
+
+async def run_auto_scan_loop():
+    # Lấy interval từ .env hoặc mặc định 180s (3 phút)
+    interval = int(os.getenv("SYNC_INTERVAL_SECONDS", 180))
+    print(f"⏰ [View Server] Auto-Scan started (Every {interval}s)")
+    
+    while True:
+        try:
+            print(f"\n⏰ [Auto-Scan] Triggering scheduled scan...")
+            await scan_new_databases()
+        except Exception as e:
+            print(f"❌ [Auto-Scan] Error in view server loop: {e}")
+        
+        await asyncio.sleep(interval)
+# =====================================================================
 
 @app.get("/health")
 def health():
@@ -66,6 +91,8 @@ async def chat(message: str = Form(""), image: UploadFile = File(None)):
 @app.get("/", response_class=HTMLResponse)
 def home():
     file_path = Path(__file__).parent / "index.html"
+    if not file_path.exists():
+        return "<h1>Không tìm thấy index.html</h1>"
     return file_path.read_text(encoding="utf-8")
 # Các route cũ
 @app.get("/search")
@@ -78,9 +105,9 @@ def inventory(book_name: str):
 
 # Serve HTML
 STATIC_DIR = Path(__file__).resolve().parent
-@app.get("/", response_class=HTMLResponse)
-def home():
-    file_path = STATIC_DIR / "Chatbot.html"
+@app.get("/chatbot", response_class=HTMLResponse)
+def chatbot_page():
+    file_path = Path(__file__).parent / "Chatbot.html"
     if not file_path.exists():
         return "<h1>Không tìm thấy Chatbot.html</h1>"
     return file_path.read_text(encoding="utf-8")

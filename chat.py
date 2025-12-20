@@ -233,7 +233,7 @@ Chỉ trả về 1 con số duy nhất.
 
 #  MAIN PROCESS - DYNAMIC & AUTOMATED
 # ============================================
-def process_message(text: str, history: list = None) -> str:
+def process_message(text: str, history: list = None, image_path: str = None) -> str:
     """
     DYNAMIC VERSION + Multi-step Reasoning + Conversation Memory
     - Router ngữ nghĩa (Vector + LLM CoT)
@@ -340,16 +340,17 @@ Phân tích câu hỏi sau và trả lời:
 Câu hỏi: "{text}"
 
 Hỏi:
-1. User có muốn nhiều kết quả không? (có/không)
-2. Nếu có, user muốn bao nhiêu kết quả? (trả số, nếu không rõ thì trả 3)
+1. User có thực sự muốn hỏi danh sách NHIỀU kết quả không (ví dụ: "liệt kê", "các loại", "những cuốn", "top 5")? (có/không)
+2. Nếu có, user muốn bao nhiêu kết quả? (trả số, nếu không rõ thì trả 1)
 
 Chỉ trả lời theo format: <có/không>|<số>
 
 Ví dụ:
-- "Gợi ý 3 sách về Python" → có|3
+- "Gợi ý các sách về Python" → có|3
 - "Cho tôi 5 cuốn về AI" → có|5
 - "Sách Python giá bao nhiêu?" → không|1
-- "Có sách nào hay không?" → có|3
+- "Sách python" → không|1
+- "Thông tin về sách Java" → không|1
 """
         
         try:
@@ -409,10 +410,7 @@ Trả về danh sách số thứ tự (ví dụ: 2,5,7), KHÔNG giải thích:
                 except ValueError:
                     pass
         except Exception as e:
-            print(f"[DEBUG] ⚠️ LLM extract failed: {e}, fallback to rerank")
-            print(f"[DEBUG] ✅ Trả về top 3 kết quả (user muốn gợi ý)")
-            final_ans = humanize_answer(text, combined_answer)
-            return final_ans
+            print(f"[DEBUG] ⚠️ LLM extract failed: {e}, falling back to single-result rerank")
 
         # B6b: Rerank với LLM (Chọn câu trả lời phù hợp nhất) - Chỉ khi hỏi 1 câu cụ thể
         best_cand = rerank_with_llm(rewritten, candidates, context_str=context_str)

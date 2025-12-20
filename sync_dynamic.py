@@ -848,6 +848,10 @@ async def scan_new_databases():
 
                 conn.commit()
                 conn.close()
+                
+                # NEW: Also cleanup collections_config
+                cleanup_deleted_tables_in_sqlite(synced_tables)
+                
             except Exception as e:
                 print(f"   ⚠️ [Auto-Delete] Error: {e}")
 
@@ -871,26 +875,29 @@ def cleanup_deleted_tables_in_sqlite(valid_tables):
     valid_tables: danh sách các bảng hiện có (được sync thành công).
     """
     try:
-        conn = sqlite3.connect("faq.db")
+        conn = get_conn()
         cur = conn.cursor()
 
         cur.execute("SELECT name FROM collections_config")
-        existing = [row[0] for row in cur.fetchall()]
+        existing_configs = [row[0] for row in cur.fetchall()]
 
-        to_delete = [t for t in existing if t not in valid_tables]
+        # WHITELIST: Bảng hệ thống không bao giờ xoá khỏi config (nếu có)
+        WHITELIST_CONFIG = {"global", "faq"} 
+
+        to_delete = [t for t in existing_configs if t not in valid_tables and t not in WHITELIST_CONFIG]
 
         if to_delete:
-            print("🧹 Xóa các bảng không còn trong Notion:")
+            print(f"🧹 [Cleanup] Xóa {len(to_delete)} bảng khỏi collections_config:")
             for t in to_delete:
                 cur.execute("DELETE FROM collections_config WHERE name = ?", (t,))
                 print(f"   - Đã xóa: {t}")
             conn.commit()
         else:
-            print("✔ Không có bảng nào cần xóa khỏi collections_config.")
+            print("✔ [Cleanup] Không có bảng nào cần xóa khỏi collections_config.")
 
         conn.close()
     except Exception as e:
-        print(f"⚠ Lỗi khi xóa bảng không còn trong Notion: {e}")
+        print(f"⚠ [Cleanup] Lỗi khi dọn dẹp collections_config: {e}")
 if __name__ == "__main__":
     print("🚀 [MANUAL TRIGGER] Starting Notion Sync...")
     try:
