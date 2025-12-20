@@ -1,0 +1,463 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    color: white;
+    overflow-x: hidden; /* tránh scroll ngang khi mở sidebar */
+}
+
+/* Tuyết rơi */
+.snow { 
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; 
+}
+.snow span {
+    position: absolute; color: #fff; font-size: 1.5rem; opacity: 0.8;
+    animation: fall linear infinite;
+}
+@keyframes fall { to { transform: translateY(100vh); } }
+.snow span:nth-child(1) { left: 10%; animation-duration: 15s; }
+.snow span:nth-child(2) { left: 20%; animation-duration: 12s; }
+.snow span:nth-child(3) { left: 35%; animation-duration: 18s; }
+.snow span:nth-child(4) { left: 50%; animation-duration: 14s; }
+.snow span:nth-child(5) { left: 65%; animation-duration: 20s; }
+.snow span:nth-child(6) { left: 80%; animation-duration: 16s; }
+.snow span:nth-child(7) { left: 90%; animation-duration: 13s; }
+.snow span:nth-child(8) { left: 15%; animation-duration: 17s; }
+.snow span:nth-child(9) { left: 45%; animation-duration: 19s; }
+.snow span:nth-child(10){ left: 75%; animation-duration: 15s; }
+
+/* HAMBURGER & SIDEBAR */
+.hamburger {
+    position:  absolute;
+    top: 30px;
+    left: 20px;
+    font-size: 28px;
+    cursor: pointer;
+    z-index: 998;
+    color: rgb(198, 23, 23);
+    display: none; /* ẩn trên desktop */
+}
+
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: -300px; /* ẩn ban đầu */
+    width: 280px;
+    height: 100vh;
+    background: rgb(150, 0, 0);
+    backdrop-filter: blur(10px);
+    z-index: 999;
+    transition: left 0.4s ease;
+    padding: 20px;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 50px;
+    padding-top: 20px;
+}
+
+.sidebar-logo {
+    width: 90px;
+}
+
+.close-btn {
+    font-size: 28px;
+    cursor: pointer;
+    color: #fff;
+}
+
+.sidebar-nav a {
+    display: block;
+    padding: 15px 20px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 18px;
+    font-weight: 500;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    transition: 0.3s;
+}
+
+.sidebar-nav a:hover {
+    background: #eb2929;
+    padding-left: 30px;
+    color: #ffe839;
+}
+/* Logo căn giữa đầu sidebar */
+.sidebar-logo-wrapper {
+    width: 100%;
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 40px;
+}
+
+.sidebar-logo-wrapper img {
+    width: 190px;
+}
+
+/* Menu chiếm toàn bộ chiều cao đẩy nút X xuống cuối */
+.sidebar {
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-nav {
+    flex: 1; /* đẩy nút X xuống đáy */
+}
+
+/* Nút X dưới cùng */
+.sidebar-close-bottom {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.sidebar-close-bottom .close-btn {
+    font-size: 32px;
+    color: #fff;
+    cursor: pointer;
+}
+
+.overlay-menu {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0);
+    z-index: 998;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s;
+}
+
+/* Khi mở menu */
+.sidebar.open {
+    left: 0;
+}
+.overlay-menu.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* NAVBAR DESKTOP */
+.navbar {
+    width: 100%;
+     padding: 0px 40px 20px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: absolute;
+    z-index: 100;
+}
+
+.desktop-nav a {
+    margin: 0 15px;
+    text-decoration: none;
+    color: #fff;
+    font-weight: 500;
+    position: relative;
+    transition: 0.3s;
+}
+.desktop-nav a:hover {
+    color: #eb2929;
+}
+.desktop-nav a::after {
+    content: "";
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: #ffe839;
+    transition: 0.3s;
+}
+.desktop-nav a:hover::after {
+    width: 100%;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+     margin-left: -30px;
+}
+.logo-img {
+    width: 120px;
+    height: 100px;
+    object-fit: cover;
+}
+.logo-text {
+    display: flex;
+    gap: 1px;
+    font-size: 28px;
+    font-weight: 800;
+    margin-left: -15px;
+}
+.t1 { color: #1e90ff; }
+.t2 { color: #ff3b3b; }
+.n  { color: #2ecc71; }
+
+/* HERO */
+.hero {
+    position: relative;
+    height: 95vh;
+    background-image: url('https://cdn.tuoitre.vn/471584752817336320/2023/2/27/dh-tay-nguyen6-1677463795769606743092.jpg');
+    background-size: cover;
+    background-position: center top;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 0 60px;
+}
+.overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+}
+.hero-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 90%;
+    max-width: 1400px;
+    margin-top: 100px;
+    z-index: 5;
+}
+.content {
+    width: 60%;
+}
+.content h1 {
+    font-size: 48px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    line-height: 1.2;
+    color:#fff;
+}
+.content p {
+    width: 80%;
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+.info-box {
+    width: 35%;
+    background: white;
+    color: #333;
+    padding: 35px;
+    border-radius: 12px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+}
+.info-box h2 {
+    font-size: 26px;
+    margin-bottom: 15px;
+    color: #c41e3a;
+}
+.info-box p {
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.features {
+    width: 90%;
+    max-width: 1400px;
+    margin: 60px auto 0;
+    display: flex;
+    justify-content: center;
+    gap: 80px;
+    z-index: 5;
+}
+.feature-card {
+    width: 30%;
+    background: rgba(150,0,0,0.55);
+    padding: 30px 20px;
+    text-align: center;
+    border-left: 1px solid rgba(255,255,255,0.2);
+    border-right: 1px solid rgba(255,255,255,0.2);
+    backdrop-filter: blur(5px);
+}
+.feature-card h3 {
+    font-size: 22px;
+    margin-bottom: 15px;
+}
+
+/* FOOTER */
+.footer {
+    background: #760f0f;
+    padding: 60px 0 20px;
+    color: #fff;
+}
+.footer-container {
+    width: 90%;
+    max-width: 1400px;
+    margin: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    justify-content: space-between;
+}
+.footer-col {
+    flex: 1;
+    min-width: 250px;
+}
+.footer-col h3 {
+    color: #ffe839;
+    margin-bottom: 10px;
+    font-size: 20px;
+}
+.footer-col ul li a {
+    color: #ddd;
+    text-decoration: none;
+    transition: 0.3s;
+}
+.footer-col ul li a:hover { color: #ff4d4d; }
+.footer-bottom {
+    text-align: center;
+    padding-top: 30px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    font-size: 14px;
+}
+/* ================= CHAT POPUP ================= */
+
+/* Bong bóng chat */
+.chat-bubble {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    width: 62px;
+    height: 62px;
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    z-index: 9999;
+}
+
+.chat-bubble i {
+    color: white;
+    font-size: 26px;
+}
+
+/* Popup */
+.chat-popup {
+    position: fixed;
+    bottom: 100px;
+    right: 22px;
+    width: 420px;
+    height: 600px;
+    background: #0b1020;
+    border-radius: 18px;
+    box-shadow: 0 25px 60px rgba(0,0,0,.45);
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    z-index: 10000;
+}
+
+/* Header */
+.chat-header {
+    height: 48px;
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    font-weight: 600;
+}
+
+.chat-header button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+/* iframe */
+.chat-popup iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+    .chat-popup {
+        width: calc(100vw - 20px);
+        height: calc(100vh - 120px);
+        right: 10px;
+        bottom: 90px;
+    }
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 1024px) {
+    .hero-inner {
+        flex-direction: column;
+        text-align: center;
+        margin-top: 80px;
+    }
+    .content, .info-box {
+        width: 80%;
+    }
+    .content h1 { font-size: 40px; }
+    .content p { width: 100%; }
+    .features {
+        flex-direction: column;
+        align-items: center;
+        gap: 30px;
+    }
+    .feature-card {
+        width: 70%;
+        max-width: 500px;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Ẩn navbar desktop, hiện hamburger */
+    .hamburger { display: block; }
+    .desktop-nav { display: none; }
+    .navbar {
+        justify-content: flex-start; /* canh hamburger sang trái */
+    }
+
+    .logo {
+        display: none !important;
+    }
+
+    .hero {
+        height: auto;
+        min-height: 100vh;
+        padding: 120px 20px 60px;
+        padding-top: 0px
+    }
+    .content h1 { 
+        font-size: 36px; }
+    .info-box {
+        margin-top: 40px;
+        padding: 25px;
+    }
+    .features {
+        margin-top: 40px;
+        gap: 25px;
+    }
+    .feature-card {
+        width: 90%;
+        padding: 25px;
+    }
+}
+
+@media (max-width: 480px) {
+    .content h1 { font-size: 30px; }
+    .info-box h2 { font-size: 22px; }
+    .feature-card h3 { font-size: 20px; }
+    .footer-container { flex-direction: column; align-items: center; text-align: center; }
+}

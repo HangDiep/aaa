@@ -1,55 +1,73 @@
 <!DOCTYPE html>
 <html lang="vi">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Assistant</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Library Chatbox</title>
 
-
-  <link rel="stylesheet" href="/view/Chatbot.css">
+  <!-- CSS riêng -->
+  <link rel="stylesheet" href="/static/chatbot.css">
 </head>
-
 <body>
   <div class="app">
-
     <header>
-      <div class="dot"></div>
+      <div class="dot" aria-hidden="true"></div>
       <div>
-        <h1>CHAT THƯ VIỆN</h1>
-        <div class="sub"> Trợ lý thư viện <span id="apiStatus"></span></div>
-      </div>
-
+        <h1>Library Chatbot</h1>
+        <div class="sub">· TTN University·</div>
+      </div> 
       <div class="toolbar">
-        <button id="btnNew" class="btn btn-reset">Mới</button>
+        <button id="btnNew" class="btn btn-danger">Tạo mới</button>
       </div>
     </header>
 
-    <main id="chat" class="chat">
+    <main id="chat" class="chat" aria-live="polite">
       <div id="emptyState" class="empty">
-        Chưa có tin nhắn nào — hãy bắt đầu cuộc trò chuyện.
+        <p>
+          Chào bạn! Hãy bắt đầu trao đổi...<br/>
+          Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · Shift+Enter để xuống dòng.
+        </p>
       </div>
     </main>
 
+    <!-- Composer -->
     <section class="composer">
-      <input type="file" id="ocrInput" accept="image/*" hidden />
+      <div id="imagePreview" class="image-preview"></div>
 
-      <div>
-        <textarea id="input" placeholder="Nhập tin nhắn..."></textarea>
-        <button id="btnOCR" class="btn">📷 OCR</button>
-        <button id="btnRecord" class="btn">🎤 Ghi âm</button>
+      <div class="composer-row">
+        <div class="input-box">
+          <!-- Input ẩn -->
+          <input type="file" id="imageInput" accept="image/*" hidden />
+
+          <!-- Nút icon camera -->
+          <button type="button" id="pickImage" class="icon-btn left" title="Chọn ảnh">
+            <svg viewBox="0 0 24 24" class="icon-svg">
+              <!-- Icon camera -->
+              <path d="M4 7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.17l-1.84-2H8.99L7.15 7H4zm8 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/>
+            </svg>
+          </button>
+
+          <textarea id="input" placeholder="Gõ câu hỏi… hoặc gửi kèm ảnh" rows="1"></textarea>
+
+          <button id="btnRecord" class="icon-btn right" title="Ghi âm">
+            <svg viewBox="0 0 24 24" class="icon-svg">
+              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM12 19v3"/>
+            </svg>
+          </button>
+        </div>
+        <button id="send" class="send">Gửi</button>
       </div>
-
-      <button id="send" class="send">Gửi</button>
     </section>
 
-    <footer class="footer">
-      © 2025 Chat Assistant UI
-    </footer>
-
+    <div class="footer">
+      <div class="status">
+        <span class="blink"></span>
+        Sẵn sàng — API: <span id="apiStatus">offline</span>
+      </div>
+    </div>
   </div>
 
-  <script src="/view/app.js"></script>
+  <!-- JS riêng -->
+  <script src="/static/app.js"></script>
 </body>
-
 </html>
