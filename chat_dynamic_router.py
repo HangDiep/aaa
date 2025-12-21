@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 # Load .env
+print("====================================================")
+print("   CHATBOT DYNAMIC ROUTER - SYSTEM STARTING...      ")
+print("   Tác giả: Đỗ Thị Hồng Điệp - 23103014              ")
+print("   TTN University - Copyright © 2025               ")
+print("====================================================")
+
 # Load .env
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, "rag", ".env")
@@ -44,8 +50,7 @@ _cache_time = 0
 _description_embeddings_cache = {}
 
 CACHE_TTL = 300  # 5 minutes
-
-
+# Hàm này dùng để lấy danh sách các collection (bảng) đang hoạt động kèm theo mô tả ngữ nghĩa của từng collection, từ SQLite, để router dùng khi suy luận.
 def get_collections_with_descriptions() -> Dict[str, str]:
     global _collections_cache, _cache_time
 

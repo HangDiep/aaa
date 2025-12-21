@@ -1,5 +1,16 @@
+<!--
+==========================================
+HO TÊN: Đỗ Thị Hồng Điệp
+MSSV: 23103014
+ĐỒ ÁN: Chatbot Dynamic Router - TTN University
+NGÀY NỘP: 21/12/2025
+Copyright © 2025. All rights reserved.
+==========================================
+-->
+
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,6 +19,7 @@
   <!-- CSS riêng -->
   <link rel="stylesheet" href="/static/chatbot.css">
 </head>
+
 <body>
   <div class="app">
     <header>
@@ -15,7 +27,7 @@
       <div>
         <h1>Library Chatbot</h1>
         <div class="sub">· TTN University·</div>
-      </div> 
+      </div>
       <div class="toolbar">
         <button id="btnNew" class="btn btn-danger">Tạo mới</button>
       </div>
@@ -24,7 +36,7 @@
     <main id="chat" class="chat" aria-live="polite">
       <div id="emptyState" class="empty">
         <p>
-          Chào bạn! Hãy bắt đầu trao đổi...<br/>
+          Chào bạn! Hãy bắt đầu trao đổi...<br />
           Mẹo: Nhấn <span class="kbd">Enter</span> để gửi · Shift+Enter để xuống dòng.
         </p>
       </div>
@@ -43,7 +55,8 @@
           <button type="button" id="pickImage" class="icon-btn left" title="Chọn ảnh">
             <svg viewBox="0 0 24 24" class="icon-svg">
               <!-- Icon camera -->
-              <path d="M4 7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.17l-1.84-2H8.99L7.15 7H4zm8 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/>
+              <path
+                d="M4 7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.17l-1.84-2H8.99L7.15 7H4zm8 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" />
             </svg>
           </button>
 
@@ -51,7 +64,8 @@
 
           <button id="btnRecord" class="icon-btn right" title="Ghi âm">
             <svg viewBox="0 0 24 24" class="icon-svg">
-              <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM12 19v3"/>
+              <path
+                d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM12 19v3" />
             </svg>
           </button>
         </div>
@@ -64,10 +78,14 @@
         <span class="blink"></span>
         Sẵn sàng — API: <span id="apiStatus">offline</span>
       </div>
+      <div class="copyright" style="font-size: 0.8em; opacity: 0.7; margin-top: 5px;">
+        &copy; 2025 Developed by Đỗ Thị Hồng Điệp - 23103014 | TTN University
+      </div>
     </div>
   </div>
 
   <!-- JS riêng -->
   <script src="/static/app.js"></script>
 </body>
+
 </html>

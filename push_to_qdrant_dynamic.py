@@ -1,3 +1,11 @@
+# ==========================================
+# HO TÊN: Đỗ Thị Hồng Điệp
+# MSSV: 23103014
+# ĐỒ ÁN: Chatbot Dynamic Router - TTN University
+# NGÀY NỘP: 21/12/2025
+# Copyright © 2025. All rights reserved.
+# ==========================================
+
 """
 Qdrant Incremental Sync Script (Single Collection Architecture)
 
@@ -60,7 +68,7 @@ def normalize(x: str) -> str:
         return ""
     return " ".join(str(x).lower().strip().split())
 
-
+# “Hàm này giúp dữ liệu từ Notion dù phức tạp đến đâu cũng được chuẩn hóa trước khi embedding.”
 def flatten_recursive(value):
     """
     Hàm đệ quy làm phẳng dữ liệu từ kết quả Notion API.
@@ -77,8 +85,6 @@ def flatten_recursive(value):
     
     if value is None:
         return None
-        
-    # Trường hợp giá trị 'type': 'number', 'number': 123... (Notion format)
     if isinstance(value, dict):
         if "type" in value:
             t = value.get("type")
@@ -100,12 +106,7 @@ def flatten_recursive(value):
             return value["number"]
         if "content" in value: # Text
             return value["content"]
-        
-        # Nếu là dict thường, duyệt qua các key (nhưng Notion thường nested sâu, 
-        # nên tốt rhat là trả về string nếu không match pattern nào)
         return str(value)
-
-    # Trường hợp list (Relation, Multi-select, People...)
     if isinstance(value, list):
         return [flatten_recursive(v) for v in value]
     
@@ -122,7 +123,11 @@ def flatten_recursive(value):
     
     # Giá trị nguyên thủy (str, int, float, bool)
     return value
-
+# Nhiệm vụ:
+# Lấy mô tả ngữ nghĩa của bảng
+# Mô tả này được sinh trước đó bằng LLM
+# 📌 Vai trò:
+# Giúp Qdrant không chỉ biết dữ liệu, mà còn biết bảng đó dùng làm gì.
 def get_table_description_from_sqlite(table_name: str) -> str:
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
@@ -155,7 +160,17 @@ def get_column_mappings(table_name: str) -> dict:
 def get_db_connection():
     return sqlite3.connect(FAQ_DB_PATH)
 
+# Nhiệm vụ:
 
+# Tạo đoạn text đại diện cho 1 record
+
+# Ưu tiên các trường quan trọng (title, question, content…)
+
+# Gắn thêm tên bảng + mapping tiếng Việt
+
+# 📌 Câu nói:
+
+# “Đây là bước biến dữ liệu có cấu trúc thành ngôn ngữ tự nhiên để đưa vào embedding.”
 def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> str:
     """
     Tạo text để embed. Ưu tiên các trường quan trọng.
@@ -199,6 +214,15 @@ def row_generator(cursor, batch_size=100):
         yield rows
 
 
+# Nhiệm vụ:
+
+# Lấy danh sách notion_id hiện đang có trong Qdrant
+
+# Lọc theo source_table
+
+# 📌 Dùng để:
+
+# Phát hiện record “mồ côi” (đã xoá ở SQLite nhưng còn trong Qdrant)
 def get_existing_ids_in_qdrant(client: QdrantClient, table_name: str):
     """
     Lấy toàn bộ ID (notion_id) hiện đang có trong Qdrant cho source_table = table_name.
@@ -233,7 +257,11 @@ def get_existing_ids_in_qdrant(client: QdrantClient, table_name: str):
     print(f"  🔎 Qdrant currently has {len(existing_ids)} ids for table '{table_name}'")
     return existing_ids
 
+# Nhiệm vụ:
 
+# Xoá sạch dữ liệu của 1 bảng trong Qdrant
+
+# Chỉ dùng cho bảng hệ thống (questions_log, conversations…)
 def delete_entire_table_from_qdrant(client: QdrantClient, table_name: str):
     """
     Xóa toàn bộ dữ liệu của một bảng khỏi Qdrant (dùng cho bảng bị exclude)

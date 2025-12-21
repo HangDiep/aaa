@@ -1,0 +1,16 @@
+THÔNG BÁO BẢN QUYỀN VÀ SỞ HỮU TRÍ TUỆ
+====================================
+
+Dự án: Chatbot Dynamic Router - TTN University
+Tác giả: Đỗ Thị Hồng Điệp
+MSSV:23103014
+Ngày hoàn thành: 21/12/2025
+
+ĐIỀU KHOẢN SỬ DỤNG:
+1. Mã nguồn này được thực hiện trong khuôn khổ đồ án môn học tại TTN University.
+2. Tác giả giữ toàn quyền sở hữu trí tuệ đối với các thành phần mã nguồn được viết mới.
+3. Nghiêm cấm mọi hành vi sao chép, chỉnh sửa hoặc sử dụng mã nguồn này cho mục đích thương mại mà không có sự đồng ý của tác giả.
+4. Giảng viên và nhà trường có quyền sử dụng mã nguồn này để phục vụ mục đích chấm điểm và lưu trữ học thuật.
+
+Copyright © 2025 Đỗ Thị Hồng Điệp. All rights reserved.
+====================================

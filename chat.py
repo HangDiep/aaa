@@ -1,3 +1,11 @@
+# ==========================================
+# HO TÊN: Đỗ Thị Hồng Điệp
+# MSSV: 23103014
+# ĐỒ ÁN: Chatbot Dynamic Router - TTN University
+# NGÀY NỘP: 21/12/2025
+# Copyright © 2025. All rights reserved.
+# ==========================================
+
 # ============================================
 #  CHATBOT 4-BƯỚC – HIỂU NGHĨA, KHÔNG BỊA
 #  PHIÊN BẢN TỐI ƯU RAM
@@ -46,7 +54,6 @@ def get_model():
     if embed_model is not None:
         last_model_use = time.time()
         return embed_model
-    
     try:
         print("🔄 Đang load model BAAI/bge-m3...")
         embed_model = SentenceTransformer("BAAI/bge-m3")
@@ -58,7 +65,6 @@ def get_model():
         print("✅ Load fallback thành công!")
     last_model_use = time.time()
     return embed_model
-
 def cleanup_model_if_idle():
     """✅ Giải phóng model nếu không dùng lâu"""
     global embed_model, last_model_use
@@ -247,13 +253,13 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
     if not text.strip():
         return "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"
     
-    # Bước 1 nhận câu hỏi lấy lịch sử gần nhất
+    # Bước 1  lấy lịch sử gần nhất
     context_str = ""
     if history:
         context_lines = []
         for user_msg, bot_msg in history:
-            context_lines.append(f"User: {user_msg}")
-            context_lines.append(f"Bot: {bot_msg}")
+            ext_licontext_lines.append(f"User: {user_msg}")
+            contnes.append(f"Bot: {bot_msg}")
         context_str = "\n".join(context_lines)
         print(f"[CONTEXT] Using {len(history)} previous messages")
 

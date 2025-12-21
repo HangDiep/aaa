@@ -1,3 +1,11 @@
+# ==========================================
+# HO TÊN: Đỗ Thị Hồng Điệp
+# MSSV: 23103014
+# ĐỒ ÁN: Chatbot Dynamic Router - TTN University
+# NGÀY NỘP: 21/12/2025
+# Copyright © 2025. All rights reserved.
+# ==========================================
+
 """
 Dynamic Notion → SQLite → Qdrant Sync
 Tự động tạo bảng mới khi phát hiện database mới từ Notion
@@ -746,7 +754,7 @@ async def scan_new_databases():
                     next_cursor = data.get("next_cursor")
                     page_count += 1
 
-                    print(f"         - Page {page_count}: fetched {len(rows)} rows.")
+                    print(f"- Page {page_count}: fetched {len(rows)} rows.")
 
                     if len(all_rows) > 1000:
                         print("      ⚠️ Reached 1000 rows limit per scan. Stopping.")
