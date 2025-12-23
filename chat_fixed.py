@@ -218,6 +218,7 @@ def process_message(sentence: str, session_id: str = "default", image_path: str 
         confidence = 0.0
     else:
         # 1) Lấy lịch sử hội thoại (2-3 câu gần nhất, trong 10 phút)
+        print(f"[PROCESS] Fetching history for session: {session_id}")
         history = get_recent_history(session_id, limit=3, expire_minutes=10)
         
         if history:
@@ -617,6 +618,7 @@ def get_recent_history(session_id: str = None, limit=3, expire_minutes=10):
             """, (limit,))
         
         rows = cur.fetchall()
+        print(f"[DB] Found {len(rows)} history rows for session {session_id}")
         conn.close()
         # Đảo lại cho thành cũ → mới
         rows.reverse()

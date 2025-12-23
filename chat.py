@@ -258,8 +258,8 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
     if history:
         context_lines = []
         for user_msg, bot_msg in history:
-            ext_licontext_lines.append(f"User: {user_msg}")
-            contnes.append(f"Bot: {bot_msg}")
+            context_lines.append(f"User: {user_msg}")
+            context_lines.append(f"Bot: {bot_msg}")
         context_str = "\n".join(context_lines)
         print(f"[CONTEXT] Using {len(history)} previous messages")
 
@@ -307,10 +307,7 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
         # BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)
         rewritten = router_result.rewritten_question or text
 
-        # 🔎 Hiểu ngành bằng ngữ nghĩa
-        
-
-        # 
+    
         q_vec_search = model.encode(
             normalize(rewritten), normalize_embeddings=True
         )

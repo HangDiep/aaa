@@ -184,7 +184,6 @@ YÊU CẦU NGHIÊM NGẶT:
 4. Nếu có format "1. ... 2. ... 3. ..." → Giữ nguyên cấu trúc danh sách
 5. Chuyển "key: value" thành câu văn tự nhiên
 6. Giữ thái độ lịch sự
-
 VÍ DỤ (3 items):
 Raw: "1. name: Python\n\n2. name: Java\n\n3. name: C++"
 → "Thư viện có 3 sách:
@@ -254,7 +253,6 @@ def reason_and_route(
             confidence=0.0,
             filter=None
         )
-
     # ---------- B1: VECTOR ROUTING ----------
     desc_embeds = get_description_embeddings(model)
     scores = []

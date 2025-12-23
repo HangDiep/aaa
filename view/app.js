@@ -17,6 +17,16 @@ const WS_URL = "ws://127.0.0.1:8000/ws";
 
 const apiStatusEl = document.getElementById("apiStatus");
 if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offline";
+
+// Quản lý Session ID để nhớ ngữ cảnh hội thoại
+function getSessionId() {
+  let sid = localStorage.getItem("chat_session_id");
+  if (!sid) {
+    sid = "session_" + Math.random().toString(36).substr(2, 9) + "_" + Date.now();
+    localStorage.setItem("chat_session_id", sid);
+  }
+  return sid;
+}
 // =============================
 // State
 // =============================
@@ -102,54 +112,7 @@ function offlineMock(q) {
 // =============================
 // Send logic
 // =============================
-async function send() {
-  if (sending) return;
-  const text = (input && input.value ? input.value : "").trim();
-  const imageFile = imageInput ? imageInput.files[0] : null;
-  if (!text && !imageFile) return; // Không gửi nếu cả hai rỗng
-  sending = true;
-  if (sendBtn) {
-    sendBtn.disabled = true;
-    sendBtn.textContent = "Đang gửi...";
-  }
-  if (input) input.value = "";
-  if (imageInput) imageInput.value = "";
-  if (imagePreview) imagePreview.innerHTML = "";  // Xóa preview sau khi gửi
-  const now = new Date();
-  const record = { 
-    user_message: text || "[Ảnh]", bot_reply: `<span class="typing"><span>.</span><span>.</span><span>.</span></span>`, 
-    time: formatTime(now) };
-  transcript.push(record);
-  persist();
-  render();
-  let reply = "";
-  try {
-    if (CHAT_API_URL) {
-      const fd = new FormData();
-      fd.append("message", text);
-      if (imageFile) fd.append("image", imageFile); // Append file nếu có
-      const res = await fetch(CHAT_API_URL || "/chat", {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await safeParse(res); // an toàn với cả text lẫn JSON
-      reply = (data && data.answer) || "";
-    } else {
-      reply = offlineMock(text);
-    }
-  } catch (err) {
-    reply = `Không gọi được API (${err.message}). Mẹo: thiết lập CHAT_API_URL trong localStorage, ví dụ: localStorage.setItem('CHAT_API_URL', 'http://127.0.0.1:8000/chat')`;
-  }
-  record.bot_reply = reply || "Xin lỗi, mình chưa hiểu ý bạn.";
-  persist();
-  render();
-  sending = false;
-  if (sendBtn) {
-    sendBtn.disabled = false;
-    sendBtn.textContent = "Gửi";
-  }
-}
+// Logic Gửi Tin Nhắn (Đã được hợp nhất vào phiên bản cuối file)
 
 // =============================
 // WebSocket Voice Recognition
@@ -214,13 +177,16 @@ if (btnRecord) btnRecord.addEventListener("click", async () => {
     }
   }
 
-  if (mediaRecorder.state === "inactive") { mediaRecorder.start(300); // gửi 0.3s một lần 
-  btnRecord.textContent = "⏹ Dừng"; 
-  btnRecord.classList.add("recording"); } 
-  else { 
-    mediaRecorder.stop(); 
-    btnRecord.textContent = "🎤"; 
-    btnRecord.classList.remove("recording"); }
+  if (mediaRecorder.state === "inactive") {
+    mediaRecorder.start(300); // gửi 0.3s một lần 
+    btnRecord.textContent = "⏹ Dừng";
+    btnRecord.classList.add("recording");
+  }
+  else {
+    mediaRecorder.stop();
+    btnRecord.textContent = "🎤";
+    btnRecord.classList.remove("recording");
+  }
 });
 
 // =============================
@@ -348,6 +314,7 @@ async function send() {
     if (CHAT_API_URL) {
       const fd = new FormData();
       fd.append("message", text);
+      fd.append("session_id", getSessionId()); // Gửi session_id để backend nhớ context
       if (imageFile) fd.append("image", imageFile, imageFile.name);
 
       const res = await fetch(CHAT_API_URL, { method: "POST", body: fd });
@@ -378,6 +345,8 @@ async function send() {
 btnNew.addEventListener("click", () => {
   if (confirm("Bắt đầu phiên chat mới?")) {
     transcript.length = 0;
+    // Xóa session cũ để bắt đầu context mới
+    localStorage.removeItem("chat_session_id");
     persist();
     render();
   }
