@@ -194,7 +194,7 @@ def rerank_with_llm(user_q: str, candidates: list, context_str: str = ""):
     for i, c in enumerate(top_candidates, start=1):
         block += f"{i}. [{c['category']}] {c['answer']}\n"
     #tiêm trí nhớ
-    # Thêm context nếu có
+    
     context_section = ""
     if context_str:
         context_section = f"\nLịch sử hội thoại:\n{context_str}\n"
@@ -262,7 +262,7 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
             context_lines.append(f"Bot: {bot_msg}")
         context_str = "\n".join(context_lines)
         print(f"[CONTEXT] Using {len(history)} previous messages")
-# lấy cặp đóng gói
+# lấy cặp đóng gói1 phía trên 196 phía dưới 296
     try:
         # Import dynamic tools (đã sửa ở trên)
         from chat_dynamic_router import (

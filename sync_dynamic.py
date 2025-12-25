@@ -97,15 +97,22 @@ def seed_default_filters():
     }
     try:
         import json
-        filters_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False) # 
-        cur.execute("SELECT name, dynamic_filters FROM collections_config WHERE name='sch_'")
-        row = cur.fetchone()
+        filters_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False)
         
-        if row and not row[1]: # table exists but no filters
-            print("  🌱 Seeding default filters for 'sch_'...")
-            sch_json = json.dumps(sch_filters, ensure_ascii=False)
-            cur.execute("UPDATE collections_config SET dynamic_filters = ? WHERE name='sch_'", (sch_json,))
-            conn.commit()
+        # Danh sách các bảng có khả năng là bảng Sách
+        book_tables = ['sch_', 'tra_cu_thng_tin_sch_', 'sach', 'books']
+        
+        for tbl in book_tables:
+            # Kiểm tra xem bảng có tồn tại trong config không
+            cur.execute("SELECT name, dynamic_filters FROM collections_config WHERE name=?", (tbl,))
+            row = cur.fetchone()
+            
+            if row:
+                if not row[1] or row[1] == "{}": # Nếu chưa có filter hoặc filter rỗng
+                    print(f"  🌱 Seeding default filters for '{tbl}'...")
+                    sch_json = json.dumps({"id_ngnh": sch_filters}, ensure_ascii=False)
+                    cur.execute("UPDATE collections_config SET dynamic_filters = ? WHERE name=?", (sch_json, tbl))
+                    conn.commit()
             
     except Exception as e:
         print(f"  ⚠️ Error seeding filters: {e}")
@@ -278,7 +285,7 @@ def update_collection_mappings(table_name: str, mappings: dict):
     
     conn.commit()
     conn.close()
-# Tự tạo bảng SQLite khi thấy database mới
+# Tự tạo bảng SQLite  mới
 def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
     """
     Tự động tạo bảng SQLite nếu chưa tồn tại.
@@ -313,12 +320,10 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
         create_sql = f"CREATE TABLE {table_name} ({', '.join(cols_sql)})"
         cur.execute(create_sql)
         conn.commit()
-
         print(f"  ✅ Table '{table_name}' created successfully!")
 
         print(f"  🤖 Generating description for '{table_name}'...")
-        description = generate_table_description(table_name, data) # Tự tạo description
-        
+        description = generate_table_description(table_name, data) 
         # Capture mappings: {slug: original_name}
         mappings = {sanitize_column_name(k): k for k in data.keys()}
         save_to_collections_config(table_name, description, mappings)

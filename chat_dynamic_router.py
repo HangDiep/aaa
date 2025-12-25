@@ -55,6 +55,7 @@ def get_collections_with_descriptions() -> Dict[str, str]:
    # generate_table_description
     global _collections_cache, _cache_time
 #de generate_table_description
+#reason_and_route
     if _collections_cache and time.time() - _cache_time < CACHE_TTL:
         return _collections_cache
     try:
@@ -228,6 +229,7 @@ class RouterResult:
 #  MULTI-STEP REASONING ROUTER (CoT + Clarification)
 # ============================================
 #context_str = "" chat.py 257
+#humanize_answer 
 def reason_and_route(
     question: str, q_vec: np.ndarray, llm_func, model
 ) -> RouterResult:
@@ -293,6 +295,7 @@ def reason_and_route(
         options_lines.append(f"- {name}: {desc} (similarity={s:.2f})")
     options_str = "\n".join(options_lines)
 #câu hỏi mới +lịch sử gần đây
+#search_dynamic() 
     prompt = f"""
 Bạn là ROUTER thông minh cho chatbot thư viện.
 
@@ -303,15 +306,16 @@ CÁC BẢNG DỮ LIỆU (COLLECTIONS) CÓ THỂ LIÊN QUAN:
 {options_str}
 
 HƯỚNG DẪN QUAN TRỌNG:
-- Nếu user hỏi về SÁCH (gợi ý sách, tìm sách, sách nào, có sách...) → LUÔN chọn "sch_"
+- Nếu user hỏi về SÁCH (gợi ý sách, tìm sách, sách nào, có sách...) → LUÔN chọn bảng có chứa từ "sch" hoặc "sách" (ví dụ: "tra_cu_thng_tin_sch_")
 - Nếu user hỏi về NGÀNH HỌC (ngành gì, mã ngành...) → Chọn "ngnh"
 - Nếu user hỏi về SỐ LƯỢNG (bao nhiêu, thống kê, có bao nhiêu...) hoặc QUY MÔ → Chọn "faq_"
 - Nếu user hỏi về FAQ (câu hỏi thường gặp, hỏi đáp...) → Chọn "faq_"
+- Tuyệt đối không chọn bảng không có trong danh sách CÁC BẢNG DỮ LIỆU ở trên.
 
 VÍ DỤ:
-- "Gợi ý 3 sách về CNTT" → target_collection: "sch_"
-- "Có sách Python không?" → target_collection: "sch_"
-- "Tìm sách về AI" → target_collection: "sch_"
+- "Gợi ý 3 sách về CNTT" → target_collection: "tra_cu_thng_tin_sch_"
+- "Có sách Python không?" → target_collection: "tra_cu_thng_tin_sch_"
+- "Tìm sách về nghiệp vụ" → target_collection: "tra_cu_thng_tin_sch_"
 - "Ngành CNTT mã là gì?" → target_collection: "ngnh"
 - "Thư viện mở cửa mấy giờ?" → target_collection: "faq_"
 
