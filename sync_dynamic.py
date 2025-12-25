@@ -172,7 +172,6 @@ def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
     if not ZIPUR_API_KEY:
         columns = [sanitize_column_name(k) for k in data.keys()]
         return f"Bảng {table_name} chứa: {', '.join(columns[:5])}"
-
     columns = list(data.keys())
 
     sample_values = []

@@ -20,13 +20,14 @@ if (apiStatusEl) apiStatusEl.textContent = CHAT_API_URL ? CHAT_API_URL : "offlin
 
 // Quản lý Session ID để nhớ ngữ cảnh hội thoại
 function getSessionId() {
-  let sid = localStorage.getItem("chat_session_id");
+  let sid = localStorage.getItem("chat_session_id"); //Kiểm tra xem đã có mã phiên chưa:
   if (!sid) {
     sid = "session_" + Math.random().toString(36).substr(2, 9) + "_" + Date.now();
     localStorage.setItem("chat_session_id", sid);
   }
   return sid;
 }
+//"session_" → tiền tố cho biết đây là phiên chat /chuỗi 9 ký tự ngẫu nhiên/Date.now() → thời gian hiện tại (đảm bảo không trùng)
 // =============================
 // State
 // =============================

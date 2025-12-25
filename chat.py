@@ -65,6 +65,7 @@ def get_model():
         print("✅ Load fallback thành công!")
     last_model_use = time.time()
     return embed_model
+#normalized_text = normalize(text)
 def cleanup_model_if_idle():
     """✅ Giải phóng model nếu không dùng lâu"""
     global embed_model, last_model_use
@@ -192,12 +193,11 @@ def rerank_with_llm(user_q: str, candidates: list, context_str: str = ""):
     block = ""
     for i, c in enumerate(top_candidates, start=1):
         block += f"{i}. [{c['category']}] {c['answer']}\n"
-    
+    #tiêm trí nhớ
     # Thêm context nếu có
     context_section = ""
     if context_str:
         context_section = f"\nLịch sử hội thoại:\n{context_str}\n"
-
     prompt = f"""
 Bạn là chuyên gia tư vấn thông minh.
 Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.
@@ -262,7 +262,7 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
             context_lines.append(f"Bot: {bot_msg}")
         context_str = "\n".join(context_lines)
         print(f"[CONTEXT] Using {len(history)} previous messages")
-
+# lấy cặp đóng gói
     try:
         # Import dynamic tools (đã sửa ở trên)
         from chat_dynamic_router import (
@@ -280,6 +280,7 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
         # chuẩn hoá và tạo vector
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
+        #reason_and_route
         if is_greeting(text) and len(text.split()) <= 4:
             collections = get_collections_with_descriptions()
             collection_names = ", ".join(
@@ -291,18 +292,17 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
             )
 
         # B2: Multi-step Reasoning Router (CoT + Clarification)
-        # “nó”, “cái đó”, “cuốn này” là gì
-        # Ý câu hỏi hiện tại dựa trên hội thoại trước 
+       #Nơi chuẩn bị dữ liệu
         router_question = text
         if context_str:
             router_question = f"{text}\n\n[Lịch sử gần đây:\n{context_str}]"
-        
         router_result = reason_and_route(router_question, q_vec, llm, model)
 
         # Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)
         if router_result.needs_clarification and router_result.clarification_question:
             print("[PROCESS] Clarification required → hỏi lại người dùng.")
             return router_result.clarification_question
+
 
         # BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)
         rewritten = router_result.rewritten_question or text

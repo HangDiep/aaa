@@ -69,11 +69,11 @@ def health():
 
 # Route mới – nhận cả text và ảnh
 @app.post("/chat")
-async def chat(message: str = Form(""), image: UploadFile = File(None)):
+async def chat(message: str = Form(""), session_id: str = Form("default"), image: UploadFile = File(None)):
     image_path = None
     if image and image.filename:
-        # Đổi tên thành UUID + đuôi gốc → 100% không lỗi Unicode
-        suffix = Path(image.filename).suffix.lower()  # .jpg, .png, ...
+        # ... logic giữ nguyên ...
+        suffix = Path(image.filename).suffix.lower()
         safe_filename = f"{uuid.uuid4()}{suffix}"
         os.makedirs("temp", exist_ok=True)
         image_path = Path("temp") / safe_filename
@@ -82,10 +82,14 @@ async def chat(message: str = Form(""), image: UploadFile = File(None)):
         with open(image_path, "wb") as f:
             f.write(content)
         
-        print(f"[UPLOAD] Đã lưu ảnh → {image_path}")
+        print(f"[UPLOAD] Đã lưu ảnh → {image_path} | Session: {session_id}")
 
     try:
-        answer = process_message(message.strip(), image_path=str(image_path) if image_path else None)
+        answer = process_message(
+            message.strip(), 
+            session_id=session_id, 
+            image_path=str(image_path) if image_path else None
+        )
     finally:
         # Luôn xóa file tạm sau khi dùng xong (tránh đầy ổ)
         if image_path and image_path.exists():

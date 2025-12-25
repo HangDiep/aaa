@@ -52,11 +52,11 @@ _description_embeddings_cache = {}
 CACHE_TTL = 300  # 5 minutes
 # Hàm này dùng để lấy danh sách các collection (bảng) đang hoạt động kèm theo mô tả ngữ nghĩa của từng collection, từ SQLite, để router dùng khi suy luận.
 def get_collections_with_descriptions() -> Dict[str, str]:
+   # generate_table_description
     global _collections_cache, _cache_time
-
+#de generate_table_description
     if _collections_cache and time.time() - _cache_time < CACHE_TTL:
         return _collections_cache
-
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
         cur = conn.cursor()
@@ -227,7 +227,7 @@ class RouterResult:
 # ============================================
 #  MULTI-STEP REASONING ROUTER (CoT + Clarification)
 # ============================================
-
+#context_str = "" chat.py 257
 def reason_and_route(
     question: str, q_vec: np.ndarray, llm_func, model
 ) -> RouterResult:
@@ -245,13 +245,13 @@ def reason_and_route(
     collections = get_collections_with_descriptions()
     if not collections:
         return RouterResult(
-            target_collection=None,
-            mode="GLOBAL",
+            target_collection=None, #không xác định được bảng
+            mode="GLOBAL",#Phải tìm kiếm trên toàn bộ database (tất cả bảng)
             rewritten_question=question,
-            needs_clarification=False,
+            needs_clarification=False,#Không cần hỏi lại người dùng  (vì không có gì để hỏi rõ)
             clarification_question=None,
-            confidence=0.0,
-            filter=None
+            confidence=0.0,# độ tin cậy bằng 0
+            filter=None # không có bộ lọc nào cả 
         )
     # ---------- B1: VECTOR ROUTING ----------
     desc_embeds = get_description_embeddings(model)
@@ -283,7 +283,8 @@ def reason_and_route(
             confidence=float(best_score),
             
         )
-
+#result.needs_clarification #chat
+        
     # ---------- B2: LLM REASONING (CoT + Clarification) ----------
     top_candidates = scores[:3]
     options_lines = []
@@ -291,7 +292,7 @@ def reason_and_route(
         desc = collections.get(name, "")
         options_lines.append(f"- {name}: {desc} (similarity={s:.2f})")
     options_str = "\n".join(options_lines)
-
+#câu hỏi mới +lịch sử gần đây
     prompt = f"""
 Bạn là ROUTER thông minh cho chatbot thư viện.
 

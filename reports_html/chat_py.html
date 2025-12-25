@@ -593,12 +593,7 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
 <span class="normal">464</span>
 <span class="normal">465</span>
 <span class="normal">466</span>
-<span class="normal">467</span>
-<span class="normal">468</span>
-<span class="normal">469</span>
-<span class="normal">470</span>
-<span class="normal">471</span>
-<span class="normal">472</span></pre></div></td><td class="code"><div><pre><span></span><span class="c1"># ==========================================</span>
+<span class="normal">467</span></pre></div></td><td class="code"><div><pre><span></span><span class="c1"># ==========================================</span>
 <span class="c1"># HO TÊN: Đỗ Thị Hồng Điệp</span>
 <span class="c1"># MSSV: 23103014</span>
 <span class="c1"># ĐỒ ÁN: Chatbot Dynamic Router - TTN University</span>
@@ -797,7 +792,6 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
     <span class="n">context_section</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
     <span class="k">if</span> <span class="n">context_str</span><span class="p">:</span>
         <span class="n">context_section</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Lịch sử hội thoại:</span><span class="se">\n</span><span class="si">{</span><span class="n">context_str</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-
     <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
 <span class="s2">Bạn là chuyên gia tư vấn thông minh.</span>
 <span class="s2">Nhiệm vụ: Tìm câu trả lời PHÙ HỢP NHẤT cho câu hỏi của người dùng trong danh sách bên dưới.</span>
@@ -862,7 +856,7 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
             <span class="n">context_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Bot: </span><span class="si">{</span><span class="n">bot_msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">context_str</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">context_lines</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CONTEXT] Using </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">history</span><span class="p">)</span><span class="si">}</span><span class="s2"> previous messages&quot;</span><span class="p">)</span>
-
+<span class="c1"># lấy cặp đóng gói</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="c1"># Import dynamic tools (đã sửa ở trên)</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">chat_dynamic_router</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -896,7 +890,6 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
         <span class="n">router_question</span> <span class="o">=</span> <span class="n">text</span>
         <span class="k">if</span> <span class="n">context_str</span><span class="p">:</span>
             <span class="n">router_question</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">[Lịch sử gần đây:</span><span class="se">\n</span><span class="si">{</span><span class="n">context_str</span><span class="si">}</span><span class="s2">]&quot;</span>
-        
         <span class="n">router_result</span> <span class="o">=</span> <span class="n">reason_and_route</span><span class="p">(</span><span class="n">router_question</span><span class="p">,</span> <span class="n">q_vec</span><span class="p">,</span> <span class="n">llm</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span>
 
         <span class="c1"># Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)</span>
@@ -907,10 +900,7 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
         <span class="c1"># BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)</span>
         <span class="n">rewritten</span> <span class="o">=</span> <span class="n">router_result</span><span class="o">.</span><span class="n">rewritten_question</span> <span class="ow">or</span> <span class="n">text</span>
 
-        <span class="c1"># 🔎 Hiểu ngành bằng ngữ nghĩa</span>
-        
-
-        <span class="c1"># </span>
+    
         <span class="n">q_vec_search</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span>
             <span class="n">normalize</span><span class="p">(</span><span class="n">rewritten</span><span class="p">),</span> <span class="n">normalize_embeddings</span><span class="o">=</span><span class="kc">True</span>
         <span class="p">)</span>

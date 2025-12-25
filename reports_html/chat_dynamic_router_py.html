@@ -645,8 +645,7 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
 <span class="normal">516</span>
 <span class="normal">517</span>
 <span class="normal">518</span>
-<span class="normal">519</span>
-<span class="normal">520</span></pre></div></td><td class="code"><div><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="normal">519</span></pre></div></td><td class="code"><div><pre><span></span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">Enterprise Dynamic Router &amp; Search</span>
 <span class="sd">Multi-step Reasoning Router + Clarification + Humanize Answer</span>
 <span class="sd">Query vào Single Collection &#39;knowledge_base&#39; với Metadata Filters</span>
@@ -700,11 +699,11 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
 <span class="n">CACHE_TTL</span> <span class="o">=</span> <span class="mi">300</span>  <span class="c1"># 5 minutes</span>
 <span class="c1"># Hàm này dùng để lấy danh sách các collection (bảng) đang hoạt động kèm theo mô tả ngữ nghĩa của từng collection, từ SQLite, để router dùng khi suy luận.</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">get_collections_with_descriptions</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+   <span class="c1"># generate_table_description</span>
     <span class="k">global</span> <span class="n">_collections_cache</span><span class="p">,</span> <span class="n">_cache_time</span>
-
+<span class="c1">#de c </span>
     <span class="k">if</span> <span class="n">_collections_cache</span> <span class="ow">and</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">_cache_time</span> <span class="o">&lt;</span> <span class="n">CACHE_TTL</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">_collections_cache</span>
-
     <span class="k">try</span><span class="p">:</span>
         <span class="n">conn</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">FAQ_DB_PATH</span><span class="p">)</span>
         <span class="n">cur</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
@@ -832,7 +831,6 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
 <span class="s2">4. Nếu có format &quot;1. ... 2. ... 3. ...&quot; → Giữ nguyên cấu trúc danh sách</span>
 <span class="s2">5. Chuyển &quot;key: value&quot; thành câu văn tự nhiên</span>
 <span class="s2">6. Giữ thái độ lịch sự</span>
-
 <span class="s2">VÍ DỤ (3 items):</span>
 <span class="s2">Raw: &quot;1. name: Python</span><span class="se">\n\n</span><span class="s2">2. name: Java</span><span class="se">\n\n</span><span class="s2">3. name: C++&quot;</span>
 <span class="s2">→ &quot;Thư viện có 3 sách:</span>
@@ -894,15 +892,14 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
     <span class="n">collections</span> <span class="o">=</span> <span class="n">get_collections_with_descriptions</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">collections</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">RouterResult</span><span class="p">(</span>
-            <span class="n">target_collection</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-            <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;GLOBAL&quot;</span><span class="p">,</span>
+            <span class="n">target_collection</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="c1">#không xác định được bảng</span>
+            <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;GLOBAL&quot;</span><span class="p">,</span><span class="c1">#Phải tìm kiếm trên toàn bộ database (tất cả bảng)</span>
             <span class="n">rewritten_question</span><span class="o">=</span><span class="n">question</span><span class="p">,</span>
-            <span class="n">needs_clarification</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">needs_clarification</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span><span class="c1">#Không cần hỏi lại người dùng  (vì không có gì để hỏi rõ)</span>
             <span class="n">clarification_question</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-            <span class="n">confidence</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
-            <span class="nb">filter</span><span class="o">=</span><span class="kc">None</span>
+            <span class="n">confidence</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span><span class="c1"># độ tin cậy bằng 0</span>
+            <span class="nb">filter</span><span class="o">=</span><span class="kc">None</span> <span class="c1"># không có bộ lọc nào cả </span>
         <span class="p">)</span>
-
     <span class="c1"># ---------- B1: VECTOR ROUTING ----------</span>
     <span class="n">desc_embeds</span> <span class="o">=</span> <span class="n">get_description_embeddings</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
     <span class="n">scores</span> <span class="o">=</span> <span class="p">[]</span>
@@ -934,6 +931,7 @@ body .il { color: #00D; font-weight: bold } /* Literal.Number.Integer.Long */
             
         <span class="p">)</span>
 
+        
     <span class="c1"># ---------- B2: LLM REASONING (CoT + Clarification) ----------</span>
     <span class="n">top_candidates</span> <span class="o">=</span> <span class="n">scores</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
     <span class="n">options_lines</span> <span class="o">=</span> <span class="p">[]</span>
