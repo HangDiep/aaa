@@ -1,8 +1,5 @@
 # ==========================================
-# HO TÊN: Đỗ Thị Hồng Điệp
-# MSSV: 23103014
 # ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-# NGÀY NỘP: 21/12/2025
 # Copyright © 2025. All rights reserved.
 # ==========================================
 
@@ -232,7 +229,7 @@ def process_message(sentence: str, session_id: str = "default", image_path: str 
             reply = "Hiện tại hệ thống đang gặp lỗi khi xử lý câu hỏi của bạn."
         tag_to_log = None   # nếu sau này muốn lưu intent/category riêng thì sửa ở đây
         confidence = 1.0
-
+#def ensure_questions_log_db() 
     # 3) Ghi SQLite với session_id
     conn = ensure_main_db()
     cur  = conn.cursor()

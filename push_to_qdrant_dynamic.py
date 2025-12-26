@@ -1,8 +1,5 @@
 # ==========================================
-# HO TÊN: Đỗ Thị Hồng Điệp
-# MSSV: 23103014
 # ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-# NGÀY NỘP: 21/12/2025
 # Copyright © 2025. All rights reserved.
 # ==========================================
 
@@ -123,11 +120,6 @@ def flatten_recursive(value):
     
     # Giá trị nguyên thủy (str, int, float, bool)
     return value
-# Nhiệm vụ:
-# Lấy mô tả ngữ nghĩa của bảng
-# Mô tả này được sinh trước đó bằng LLM
-# 📌 Vai trò:
-# Giúp Qdrant không chỉ biết dữ liệu, mà còn biết bảng đó dùng làm gì.
 def get_table_description_from_sqlite(table_name: str) -> str:
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
@@ -160,17 +152,6 @@ def get_column_mappings(table_name: str) -> dict:
 def get_db_connection():
     return sqlite3.connect(FAQ_DB_PATH)
 
-# Nhiệm vụ:
-
-# Tạo đoạn text đại diện cho 1 record
-
-# Ưu tiên các trường quan trọng (title, question, content…)
-
-# Gắn thêm tên bảng + mapping tiếng Việt
-
-# 📌 Câu nói:
-
-# “Đây là bước biến dữ liệu có cấu trúc thành ngôn ngữ tự nhiên để đưa vào embedding.”
 def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> str:
     """
     Tạo text để embed. Ưu tiên các trường quan trọng.
@@ -203,8 +184,6 @@ def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> 
             parts.append(f"{key_display}: {value}")
 
     return normalize(" ".join(parts))
-
-
 def row_generator(cursor, batch_size=100):
     """Đọc từng cục dữ liệu từ SQLite, tránh full RAM."""
     while True:
@@ -212,17 +191,6 @@ def row_generator(cursor, batch_size=100):
         if not rows:
             break
         yield rows
-
-
-# Nhiệm vụ:
-
-# Lấy danh sách notion_id hiện đang có trong Qdrant
-
-# Lọc theo source_table
-
-# 📌 Dùng để:
-
-# Phát hiện record “mồ côi” (đã xoá ở SQLite nhưng còn trong Qdrant)
 def get_existing_ids_in_qdrant(client: QdrantClient, table_name: str):
     """
     Lấy toàn bộ ID (notion_id) hiện đang có trong Qdrant cho source_table = table_name.
@@ -257,11 +225,7 @@ def get_existing_ids_in_qdrant(client: QdrantClient, table_name: str):
     print(f"  🔎 Qdrant currently has {len(existing_ids)} ids for table '{table_name}'")
     return existing_ids
 
-# Nhiệm vụ:
 
-# Xoá sạch dữ liệu của 1 bảng trong Qdrant
-
-# Chỉ dùng cho bảng hệ thống (questions_log, conversations…)
 def delete_entire_table_from_qdrant(client: QdrantClient, table_name: str):
     """
     Xóa toàn bộ dữ liệu của một bảng khỏi Qdrant (dùng cho bảng bị exclude)
@@ -289,23 +253,13 @@ def delete_entire_table_from_qdrant(client: QdrantClient, table_name: str):
 # ==========================
 
 def sync_table_to_global_collection(table_name: str, embed_model, client: QdrantClient):
-    """
-    Incremental sync cho 1 bảng:
-
-    1. Đọc dữ liệu hiện tại từ SQLite:
-        - Nếu có cột approved & bảng != 'nganh' → chỉ lấy approved = 1
-        - Ngược lại → lấy tất cả.
-    2. Upsert embedding cho tất cả row đó vào Qdrant.
-    3. Lấy danh sách ID đang có trong Qdrant (theo source_table).
-    4. Xoá các ID có trong Qdrant nhưng không còn trong SQLite.
-    """
 
     print(f"\n[SYNC] Processing table: {table_name.upper()}")
 
-    # 1. Lấy danh sách ID hiện đang có trong Qdrant cho bảng này
+    
     existing_ids = get_existing_ids_in_qdrant(client, table_name)
 
-    # 2. Đọc dữ liệu từ SQLite
+   
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -322,7 +276,7 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
         conn.close()
         return
 
-    # Load mappings
+   
     mappings = get_column_mappings(table_name)
     if mappings:
         print(f"  🗺️  Loaded {len(mappings)} column mappings for embedding.")
@@ -346,7 +300,7 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
 
     total_synced = 0
     points_buffer = []
-    sqlite_ids = set()  # lưu lại toàn bộ notion_id hiện có trong SQLite cho bảng này
+    sqlite_ids = set()  
 
     for rows_chunk in row_generator(cur, batch_size=BATCH_SIZE):
         texts_to_embed = []
@@ -363,7 +317,7 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
             notion_id_str = str(notion_id)
             sqlite_ids.add(notion_id_str)
 
-            # 🔥 FLATTEN NGAY TỪ ĐẦU: dùng chung cho embedding + payload
+           
             flat_row = {}
             for k, v in row_dict.items():
                 flat_row[k] = flatten_recursive(v)
@@ -371,7 +325,7 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
 
             text = build_embed_text(flat_row, table_name, mappings)
 
-            # ✅ Build payload từ dữ liệu đã flatten (loại bỏ notion_id)
+          
             payload = {}
             for k, v in flat_row.items():
                 if k != "notion_id":
@@ -446,7 +400,7 @@ def sync_table_to_global_collection(table_name: str, embed_model, client: Qdrant
 
     gc.collect()
 
-
+#get_existing_ids_in_qdrant
 # ==========================
 #  Collection Init & Cleanup
 # ==========================

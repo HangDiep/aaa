@@ -1,9 +1,6 @@
 /*
 ==========================================
-HO TÊN: Đỗ Thị Hồng Điệp
-MSSV: 23103014
 ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-NGÀY NỘP: 21/12/2025
 Copyright © 2025. All rights reserved.
 ==========================================
 */
@@ -25,8 +22,8 @@ document.querySelectorAll(".sidebar-nav a").forEach(link => {
 });
 // ================= CHAT POPUP =================
 const chatBubble = document.getElementById("chatBubble");
-const chatPopup  = document.getElementById("chatPopup");
-const closeChat  = document.getElementById("closeChat");
+const chatPopup = document.getElementById("chatPopup");
+const closeChat = document.getElementById("closeChat");
 
 if (chatBubble && chatPopup) {
     chatBubble.addEventListener("click", () => {

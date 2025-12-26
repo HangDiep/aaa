@@ -1,6 +1,4 @@
 # ==========================================
-# HO TÊN: Đỗ Thị Hồng Điệp
-# MSSV: 23103014
 # ĐỒ ÁN: Chatbot Dynamic Router - TTN University
 # NGÀY NỘP: 21/12/2025
 # Copyright © 2025. All rights reserved.
@@ -189,7 +187,7 @@ def generate_table_description(table_name: str, data: Dict[str, Any]) -> str:
 
     prompt = f"""Bảng "{table_name}" chứa dữ liệu mẫu: [{sample_str}]
 
-Dựa vào tên bảng và dữ liệu mẫu trên, hãy viết 1 câu mô tả ngắn gọn (10-15 từ) về mục đích của bảng này.
+Dựa vào tên bảng và dữ liệu mẫu trên, hãy viết 1 câu mô tả ngắn gọn (30-50 từ) về mục đích của bảng này.
 
 Ví dụ:
 - Bảng "books" (name: Python Basics; author: John Doe) → "Chứa thông tin các đầu sách, tài liệu và tác giả."
@@ -307,7 +305,7 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
     for key, value in data.items():
         col_name = sanitize_column_name(key)
         if col_name not in expected_columns:
-            sql_type = infer_sql_type(value)
+            sql_type = infer_sql_type(value)#đoán dữ liệu
             expected_columns[col_name] = sql_type
 
     if not exists:
@@ -324,9 +322,11 @@ def create_table_if_not_exists(table_name: str, data: Dict[str, Any]):
 
         print(f"  🤖 Generating description for '{table_name}'...")
         description = generate_table_description(table_name, data) 
+        #upsert_dynamic_data
         # Capture mappings: {slug: original_name}
         mappings = {sanitize_column_name(k): k for k in data.keys()}
         save_to_collections_config(table_name, description, mappings)
+        #async def dynamic_delete(payload: DeletePayload):
 
     else:
         cur.execute(f"PRAGMA table_info({table_name})")

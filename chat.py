@@ -1,8 +1,5 @@
 # ==========================================
-# HO TÊN: Đỗ Thị Hồng Điệp
-# MSSV: 23103014
 # ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-# NGÀY NỘP: 21/12/2025
 # Copyright © 2025. All rights reserved.
 # ==========================================
 
@@ -63,7 +60,7 @@ def get_model():
         print("🔄 Đang dùng fallback model keepitreal/vietnamese-sbert...")
         embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
         print("✅ Load fallback thành công!")
-    last_model_use = time.time()
+    last_model_use = time.time()#tê liệt
     return embed_model
 #normalized_text = normalize(text)
 def cleanup_model_if_idle():
@@ -262,9 +259,9 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
             context_lines.append(f"Bot: {bot_msg}")
         context_str = "\n".join(context_lines)
         print(f"[CONTEXT] Using {len(history)} previous messages")
-# lấy cặp đóng gói1 phía trên 196 phía dưới 296
+# #phía dưới
     try:
-        # Import dynamic tools (đã sửa ở trên)
+
         from chat_dynamic_router import (
             reason_and_route,
             search_dynamic,
@@ -277,7 +274,7 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
         # ✅ Lấy model (lazy load)
         model = get_model()
 
-        # chuẩn hoá và tạo vector
+      
         normalized_text = normalize(text)
         q_vec = model.encode(normalized_text, normalize_embeddings=True)
         #reason_and_route
@@ -292,13 +289,13 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
             )
 
         # B2: Multi-step Reasoning Router (CoT + Clarification)
-       #Nơi chuẩn bị dữ liệu
+       #Nơi chuẩn 
         router_question = text
         if context_str:
             router_question = f"{text}\n\n[Lịch sử gần đây:\n{context_str}]"
         router_result = reason_and_route(router_question, q_vec, llm, model)
 
-        # Nếu cần hỏi lại → trả luôn câu hỏi clarify (không search)
+#phía trên
         if router_result.needs_clarification and router_result.clarification_question:
             print("[PROCESS] Clarification required → hỏi lại người dùng.")
             return router_result.clarification_question

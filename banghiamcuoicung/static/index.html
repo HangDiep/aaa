@@ -1,7 +1,6 @@
 <!--
 ==========================================
-HO TÊN: Đỗ Thị Hồng Điệp
-MSSV: 23103014
+HO TÊN: Nguyễn Văn Thắng Lý Tiểu Hân Đặng Nguyễn Minh Nguyệt
 ĐỒ ÁN: Chatbot Dynamic Router - TTN University
 NGÀY NỘP: 21/12/2025
 Copyright © 2025. All rights reserved.
@@ -10,13 +9,19 @@ Copyright © 2025. All rights reserved.
 
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Realtime STT - Whisper</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       font-family: 'Inter', sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -27,6 +32,7 @@ Copyright © 2025. All rights reserved.
       justify-content: center;
       padding: 20px;
     }
+
     .container {
       width: 100%;
       max-width: 500px;
@@ -37,8 +43,21 @@ Copyright © 2025. All rights reserved.
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
       border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    h1 { text-align: center; font-size: 1.8rem; margin-bottom: 8px; font-weight: 600; }
-    p { text-align: center; font-size: 0.95rem; opacity: 0.9; margin-bottom: 20px; }
+
+    h1 {
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    p {
+      text-align: center;
+      font-size: 0.95rem;
+      opacity: 0.9;
+      margin-bottom: 20px;
+    }
+
     .chatbox {
       height: 320px;
       background: rgba(255, 255, 255, 0.1);
@@ -50,9 +69,20 @@ Copyright © 2025. All rights reserved.
       font-size: 1rem;
       line-height: 1.6;
     }
-    .chatbox::-webkit-scrollbar { width: 6px; }
-    .chatbox::-webkit-scrollbar-track { background: transparent; }
-    .chatbox::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
+
+    .chatbox::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .chatbox::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .chatbox::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 3px;
+    }
+
     .message {
       background: rgba(255, 255, 255, 0.2);
       padding: 10px 14px;
@@ -63,8 +93,26 @@ Copyright © 2025. All rights reserved.
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       animation: fadeIn 0.3s ease;
     }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .controls { display: flex; gap: 12px; justify-content: center; margin-bottom: 12px; }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+
     .btn {
       padding: 12px 20px;
       border: none;
@@ -77,20 +125,62 @@ Copyright © 2025. All rights reserved.
       gap: 8px;
       font-size: 1rem;
     }
-    .btn .icon { font-size: 1.2em; }
-    .btn.primary { background: #4facfe; color: white; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4); }
-    .btn.primary:hover:not(:disabled) { background: #3d8bfe; transform: translateY(-2px); }
-    .btn.secondary { background: #ff6b6b; color: white; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }
-    .btn.secondary:hover:not(:disabled) { background: #ff5252; transform: translateY(-2px); }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
-    .status { text-align: center; font-size: 0.9rem; opacity: 0.8; font-style: italic; }
+
+    .btn .icon {
+      font-size: 1.2em;
+    }
+
+    .btn.primary {
+      background: #4facfe;
+      color: white;
+      box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+    }
+
+    .btn.primary:hover:not(:disabled) {
+      background: #3d8bfe;
+      transform: translateY(-2px);
+    }
+
+    .btn.secondary {
+      background: #ff6b6b;
+      color: white;
+      box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+    }
+
+    .btn.secondary:hover:not(:disabled) {
+      background: #ff5252;
+      transform: translateY(-2px);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .status {
+      text-align: center;
+      font-size: 0.9rem;
+      opacity: 0.8;
+      font-style: italic;
+    }
+
     @media (max-width: 480px) {
-      .container { padding: 20px; }
-      h1 { font-size: 1.5rem; }
-      .chatbox { height: 280px; }
+      .container {
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+
+      .chatbox {
+        height: 280px;
+      }
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <h1>Realtime STT</h1>
@@ -112,4 +202,5 @@ Copyright © 2025. All rights reserved.
 
   <script src="/static/script.js"></script>
 </body>
+
 </html>

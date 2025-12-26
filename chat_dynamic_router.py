@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 # Load .env
 print("====================================================")
 print("   CHATBOT DYNAMIC ROUTER - SYSTEM STARTING...      ")
-print("   Tác giả: Đỗ Thị Hồng Điệp - 23103014              ")
 print("   TTN University - Copyright © 2025               ")
 print("====================================================")
 
@@ -45,7 +44,8 @@ ZIPUR_MODEL = os.getenv("ZIPUR_MODEL", "glm-4-plus")
 
 # Global cache for dynamic column mappings
 _column_mappings_cache: Dict[str, Dict[str, str]] = {}
-_collections_cache = {}
+# generate_table_description_collections_cache = {}
+_collections_cache = None
 _cache_time = 0
 _description_embeddings_cache = {}
 
@@ -54,9 +54,9 @@ CACHE_TTL = 300  # 5 minutes
 def get_collections_with_descriptions() -> Dict[str, str]:
    # generate_table_description
     global _collections_cache, _cache_time
-#de generate_table_description
+#
 #reason_and_route
-    if _collections_cache and time.time() - _cache_time < CACHE_TTL:
+    if _collections_cache and (time.time() - _cache_time) < CACHE_TTL:
         return _collections_cache
     try:
         conn = sqlite3.connect(FAQ_DB_PATH)
@@ -247,14 +247,15 @@ def reason_and_route(
     collections = get_collections_with_descriptions()
     if not collections:
         return RouterResult(
-            target_collection=None, #không xác định được bảng
-            mode="GLOBAL",#Phải tìm kiếm trên toàn bộ database (tất cả bảng)
+            target_collection=None, 
+            mode="GLOBAL",
             rewritten_question=question,
-            needs_clarification=False,#Không cần hỏi lại người dùng  (vì không có gì để hỏi rõ)
+            needs_clarification=False,
             clarification_question=None,
-            confidence=0.0,# độ tin cậy bằng 0
-            filter=None # không có bộ lọc nào cả 
+            confidence=0.0,
+            filter=None 
         )
+        #hỏi lại người dùng chat
     # ---------- B1: VECTOR ROUTING ----------
     desc_embeds = get_description_embeddings(model)
     scores = []
