@@ -1,10 +1,5 @@
-# ==========================================
-# ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-# Copyright © 2025. All rights reserved.
-# ==========================================
-
-import os, random, json, sqlite3, re, time
 # chat_fixed.py
+import os, json, sqlite3, time
 import threading
 from dotenv import load_dotenv
 from typing import Optional, List, Dict
@@ -14,79 +9,86 @@ import socket
 from datetime import datetime
 import chat
 import requests 
-from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from sync_dynamic import router as dynamic_router  # Import dynamic sync router
-
-app = FastAPI()
-
-# Mount static files (CSS, JS)
-app.mount("/view", StaticFiles(directory="view"), name="view")
-
-# Include dynamic sync endpoints từ sync_dynamic.py
-app.include_router(dynamic_router)
-print("✅ Dynamic sync endpoints included: /notion/dynamic/sync, /notion/dynamic/delete")
-
-# ============== RELOAD CONFIG ENDPOINT ==============
-@app.get("/")
-async def root():
-    """Trang chủ Landing Page"""
-    return FileResponse("view/index.html")
-
-@app.get("/chatbot")
-async def chatbot_page():
-    """Giao diện Chatbot (dùng cho iframe)"""
-    return FileResponse("view/Chatbot.html")
-
-@app.post("/reload-config")
-def reload_config():
-    """
-    Endpoint để reload collections config sau khi thêm bảng mới
-    Gọi endpoint này để chat.py nhận diện bảng mới ngay lập tức
-    """
-    try:
-        from chat_dynamic_router import trigger_config_reload
-        collections = trigger_config_reload()
-        return {
-            "status": "ok",
-            "message": "Config reloaded successfully",
-            "collections": list(collections.keys()),
-            "count": len(collections)
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
 
 # ============== CẤU HÌNH ==============
+ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag", ".env")
 
+try:
+    if os.path.exists(ENV_PATH):
+        load_dotenv(ENV_PATH, override=True)
+except Exception:
+    pass
 
-import asyncio
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHAT_DB_PATH = os.path.join(BASE_DIR, "chat.db")
+DB_PATH = CHAT_DB_PATH
+FAQ_DB_PATH = os.path.join(BASE_DIR, "faq.db")
+CONF_THRESHOLD = 0.60
+LOG_ALL_QUESTIONS = True
 
-@app.on_event("startup")
-async def startup_event():
-    """
-    Khởi động luồng quét tự động (Internal Scheduler).
-    Tự động quét 3 phút/lần.
-    """
-    asyncio.create_task(run_auto_scan_loop())
+# ============== DB helpers ==============
+def ensure_main_db() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True) if os.path.dirname(DB_PATH) else None
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            user_message TEXT,
+            bot_reply   TEXT,
+            intent_tag  TEXT,
+            confidence  REAL,
+            time        TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    # Migration
+    try:
+        cur.execute("SELECT session_id FROM conversations LIMIT 1")
+    except sqlite3.OperationalError:
+        cur.execute("ALTER TABLE conversations ADD COLUMN session_id TEXT DEFAULT 'default'")
+            
+    try:
+        cur.execute("SELECT created_at FROM conversations LIMIT 1")
+    except sqlite3.OperationalError:
+        cur.execute("ALTER TABLE conversations ADD COLUMN created_at TEXT")
 
-async def run_auto_scan_loop():
-    # Lấy cấu hình từ .env (Mặc định 180s = 3 phút)
-    interval = int(os.getenv("SYNC_INTERVAL_SECONDS", 180))
-    print(f"⏰ [Internal Scheduler] Auto-Scan started (Every {interval}s)")
-    
-    from sync_dynamic import scan_new_databases
-    while True:
-        try:
-            print(f"\n⏰ [Auto-Scan] Triggering scheduled scan (Next run in {interval}s)...")
-            await scan_new_databases()
-        except Exception as e:
-            print(f"❌ [Auto-Scan] Error: {e}")
-        
-        await asyncio.sleep(interval)
+    conn.commit()
+    return conn
+
+def ensure_questions_log_db() -> None:
+    if not os.path.exists(os.path.dirname(FAQ_DB_PATH)):
+        os.makedirs(os.path.dirname(FAQ_DB_PATH), exist_ok=True)
+    conn2 = sqlite3.connect(FAQ_DB_PATH)
+    cur2 = conn2.cursor()
+    cur2.execute(
+        """
+        CREATE TABLE IF NOT EXISTS questions_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question   TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            synced     INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn2.commit()
+    conn2.close()
+
+def log_question_for_notion(question: str) -> None:
+    if not question or not question.strip():
+        return
+    ensure_questions_log_db()
+    conn2 = sqlite3.connect(FAQ_DB_PATH)
+    cur2 = conn2.cursor()
+    cur2.execute("INSERT INTO questions_log (question, synced) VALUES (?, 0)", (question.strip(),))
+    conn2.commit()
+    conn2.close()
+
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rag", ".env")
 
@@ -229,7 +231,7 @@ def process_message(sentence: str, session_id: str = "default", image_path: str 
             reply = "Hiện tại hệ thống đang gặp lỗi khi xử lý câu hỏi của bạn."
         tag_to_log = None   # nếu sau này muốn lưu intent/category riêng thì sửa ở đây
         confidence = 1.0
-#def ensure_questions_log_db() 
+
     # 3) Ghi SQLite với session_id
     conn = ensure_main_db()
     cur  = conn.cursor()
@@ -267,31 +269,7 @@ def process_message(sentence: str, session_id: str = "default", image_path: str 
 
     return reply
 
-
-# ============== CHAT ENDPOINT ==============
-@app.post("/chat")
-async def chat_endpoint(request: Request):
-    """
-    Main chat endpoint - accepts message and session_id from web interface
-    """
-    try:
-        form = await request.form()
-        message = form.get("message", "").strip()
-        session_id = form.get("session_id", "default")
-        
-        if not message:
-            return {"answer": "Xin chào 👋 Bạn muốn hỏi thông tin gì trong thư viện?"}
-        
-        # Process message with session context
-        reply = process_message(message, session_id=session_id)
-        
-        return {"answer": reply}
-    
-    except Exception as e:
-        print(f"[/chat] Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"answer": "Xin lỗi, hệ thống đang gặp lỗi. Vui lòng thử lại."}
+# CHAT LOGIC ONLY (Endpoints moved to view/app.py)
 
 
 

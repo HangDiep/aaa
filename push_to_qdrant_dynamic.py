@@ -152,22 +152,86 @@ def get_column_mappings(table_name: str) -> dict:
 def get_db_connection():
     return sqlite3.connect(FAQ_DB_PATH)
 
+def synthesize_row_data(row_dict: dict, table_name: str, mappings: dict = None) -> str:
+    """
+    Sử dụng LLM để biến các cột khô khan thành một đoạn văn tự nhiên có ngữ cảnh.
+    """
+    import requests
+    
+    API_KEY = os.getenv("ZIPUR_API_KEY")
+    MODEL = os.getenv("ZIPUR_MODEL", "glm-4-plus")
+    
+    if not API_KEY:
+        return ""
+
+    # Chuẩn bị thông tin cho prompt
+    items = []
+    for k, v in row_dict.items():
+        if v and k not in ["notion_id", "last_updated", "approved", "table_description"]:
+            display_name = mappings.get(k, k) if mappings else k
+            items.append(f"{display_name}: {v}")
+    
+    data_str = ", ".join(items)
+    description = row_dict.get("table_description", f"bảng {table_name}")
+
+    prompt = f"""Bạn là một chuyên gia xử lý dữ liệu. Hãy viết lại thông tin của một hàng dữ liệu dưới đây thành một đoạn văn mô tả tự nhiên, đầy đủ ngữ cảnh để phục vụ tìm kiếm thông minh.
+
+Thông tin:
+- Chủ đề: {description}
+- Dữ liệu chi tiết: {data_str}
+
+Yêu cầu:
+1. Viết thành đoạn văn ngắn gọn, súc tích (1-2 câu).
+2. Kết nối các thông tin logic với nhau.
+3. Không bắt đầu bằng "Đoạn văn này nói về..." hay "Đây là thông tin về...".
+4. Ngôn ngữ: Tiếng Việt.
+
+Ví dụ: 
+Dữ liệu: Mã sách: S01, Tên: Đắc Nhân Tâm, Tác giả: Dale Carnegie
+=> Cuốn sách 'Đắc Nhân Tâm' (mã S01) là một tác phẩm nổi tiếng được viết bởi tác giả Dale Carnegie.
+
+Chỉ trả về đoạn văn mô tả:"""
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": 150,
+        }
+        resp = requests.post(
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"  ⚠️ Synthesis error: {e}")
+    
+    return ""
+
 def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> str:
     """
-    Tạo text để embed. Ưu tiên các trường quan trọng.
-    Sử dụng mappings để dịch tên cột sang tiếng Việt.
+    Tạo text để embed. 
+    1. Thử dùng LLM để tổng hợp thành đoạn văn tự nhiên (Contextualization Layer).
+    2. Nếu LLM lỗi hoặc không có Key, fallback về cách nối chuỗi truyền thống.
     """
-    skip_cols = ["notion_id", "last_updated", "approved"]
+    
+    # 1. Thử lớp Ngữ cảnh hóa tự động (Synthesized Layer)
+    synthesized_text = synthesize_row_data(row_dict, table_name, mappings)
+    if synthesized_text:
+        return normalize(synthesized_text)
+
+    # 2. Fallback: Cách nối chuỗi truyền thống (nếu LLM fail)
+    skip_cols = ["notion_id", "last_updated", "approved", "table_description"]
     priority_cols = [
-        "name",
-        "title",
-        "question",
-        "ten",
-        "tieu_de",
-        "cau_hoi",
-        "noidung",
-        "content",
-        "answer",
+        "name", "title", "question", "ten", "tieu_de", "cau_hoi", "noidung", "content", "answer",
     ]
 
     parts = [f"Chủ đề: {table_name}"]
@@ -179,7 +243,6 @@ def build_embed_text(row_dict: dict, table_name: str, mappings: dict = None) -> 
 
     for col, value in row_dict.items():
         if col not in skip_cols and col.lower() not in priority_cols and value:
-            # Display key: mapped name or original key
             key_display = mappings.get(col, col) if mappings else col
             parts.append(f"{key_display}: {value}")
 

@@ -1,8 +1,3 @@
-# ==========================================
-# ĐỒ ÁN: Chatbot Dynamic Router - TTN University
-# Copyright © 2025. All rights reserved.
-# ==========================================
-
 # view/app.py
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,23 +5,33 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
-from fastapi.responses import HTMLResponse
-# from chat_fixed import process_message (Đã bỏ để import ở dưới sau khi append path)
-
 import os
 import uuid
-app = FastAPI()
+import asyncio
 
-# Mount static
+# Setup paths
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+# Import logics
+from chat_fixed import process_message
+from sync_dynamic import scan_new_databases, router as sync_router
+try:
+    from banghiamcuoicung.server import router as voice_router
+except ImportError:
+    voice_router = None
+
+app = FastAPI(title="Library Chatbot - TTN University")
+
+# Mount static files
 app.mount("/static", StaticFiles(directory="view"), name="static")
 
-# Thêm đường dẫn project để import được chat_fixed.py
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(PROJECT_ROOT))
-
-from chat_fixed import process_message
-
-# Bây giờ mới import, vì process_message đã được cập nhật nhận image_path
+# Include Routers
+app.include_router(sync_router)
+if voice_router:
+    app.include_router(voice_router)
+    print("✅ Voice WebSocket router included at /ws")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,39 +42,33 @@ app.add_middleware(
 )
 
 # ================= BACKGROUND SYNC (3-MIN AUTO SCAN) =================
-import asyncio
-from sync_dynamic import scan_new_databases
-
 @app.on_event("startup")
 async def startup_event():
     """Khởi động quét Notion tự động mỗi 3 phút."""
     asyncio.create_task(run_auto_scan_loop())
 
 async def run_auto_scan_loop():
-    # Lấy interval từ .env hoặc mặc định 180s (3 phút)
     interval = int(os.getenv("SYNC_INTERVAL_SECONDS", 180))
-    print(f"⏰ [View Server] Auto-Scan started (Every {interval}s)")
+    print(f"⏰ [Server] Auto-Scan started (Every {interval}s)")
     
     while True:
         try:
             print(f"\n⏰ [Auto-Scan] Triggering scheduled scan...")
             await scan_new_databases()
         except Exception as e:
-            print(f"❌ [Auto-Scan] Error in view server loop: {e}")
+            print(f"❌ [Auto-Scan] Error: {e}")
         
         await asyncio.sleep(interval)
-# =====================================================================
 
+# ================= ROUTES =================
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-# Route mới – nhận cả text và ảnh
 @app.post("/chat")
 async def chat(message: str = Form(""), session_id: str = Form("default"), image: UploadFile = File(None)):
     image_path = None
     if image and image.filename:
-        # ... logic giữ nguyên ...
         suffix = Path(image.filename).suffix.lower()
         safe_filename = f"{uuid.uuid4()}{suffix}"
         os.makedirs("temp", exist_ok=True)
@@ -88,42 +87,36 @@ async def chat(message: str = Form(""), session_id: str = Form("default"), image
             image_path=str(image_path) if image_path else None
         )
     finally:
-        # Luôn xóa file tạm sau khi dùng xong (tránh đầy ổ)
         if image_path and image_path.exists():
             try:
                 image_path.unlink()
-                print(f"[CLEANUP] Đã xóa {image_path}")
             except:
                 pass
 
     return {"answer": answer}
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     file_path = Path(__file__).parent / "index.html"
     if not file_path.exists():
         return "<h1>Không tìm thấy index.html</h1>"
     return file_path.read_text(encoding="utf-8")
-# Các route cũ
-@app.get("/search")
-def search(q: str):
-    return [{"answer": "Giờ mở cửa: 7:30 - 17:00, Thứ 2–Thứ 6."}]
 
-@app.get("/inventory")
-def inventory(book_name: str):
-    return [{"name": book_name, "author": "N/A", "year": "?", "quantity": 3, "status": "available"}]
-
-# Serve HTML
-STATIC_DIR = Path(__file__).resolve().parent
 @app.get("/chatbot", response_class=HTMLResponse)
 def chatbot_page():
     file_path = Path(__file__).parent / "Chatbot.html"
     if not file_path.exists():
         return "<h1>Không tìm thấy Chatbot.html</h1>"
     return file_path.read_text(encoding="utf-8")
-@app.get("/chatbot", response_class=HTMLResponse)
-def chatbot_page():
-    file_path = Path(__file__).parent / "Chatbot.html"
-    return file_path.read_text(encoding="utf-8")
+
+@app.post("/reload-config")
+def reload_config():
+    try:
+        from chat_dynamic_router import trigger_config_reload
+        collections = trigger_config_reload()
+        return {"status": "ok", "collections": list(collections.keys())}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/ping")
 def ping():
