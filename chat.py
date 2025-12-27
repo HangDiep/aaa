@@ -52,13 +52,14 @@ def get_model():
         last_model_use = time.time()
         return embed_model
     try:
+        #AITeamVN/Vietnamese_Embedding
         print("🔄 Đang load model BAAI/bge-m3...")
-        embed_model = SentenceTransformer("BAAI/bge-m3")
+        embed_model = SentenceTransformer("AITeamVN/Vietnamese_Embedding")
         print("✅ Load BAAI/bge-m3 thành công!")
     except Exception as e:
         print(f"⚠ Lỗi load BAAI/bge-m3: {e}")
         print("🔄 Đang dùng fallback model keepitreal/vietnamese-sbert...")
-        embed_model = SentenceTransformer("keepitreal/vietnamese-sbert")
+        embed_model = SentenceTransformer("BAAI/bge-m3")
         print("✅ Load fallback thành công!")
     last_model_use = time.time()#tê liệt
     return embed_model
@@ -296,17 +297,35 @@ def process_message(text: str, history: list = None, image_path: str = None) -> 
         router_result = reason_and_route(router_question, q_vec, llm, model)
 
 #phía trên
+        # ✅ ANTI-LOOP: Nếu bot vừa hỏi clarification ở câu trước, KHÔNG hỏi lại nữa
         if router_result.needs_clarification and router_result.clarification_question:
-            print("[PROCESS] Clarification required → hỏi lại người dùng.")
-            return router_result.clarification_question
+            # Kiểm tra xem bot có vừa hỏi câu tương tự không
+            if history and len(history) > 0:
+                last_bot_reply = history[-1][1]  # Câu trả lời cuối của bot
+                # Nếu câu trước cũng là câu hỏi (có dấu ?) → User đã trả lời rồi → KHÔNG hỏi lại
+                if "?" in last_bot_reply and len(last_bot_reply) < 200:
+                    print("[ANTI-LOOP] Bot đã hỏi clarification ở câu trước → Bỏ qua, search luôn")
+                    router_result.needs_clarification = False
+            
+            # Nếu vẫn cần clarification sau khi check
+            if router_result.needs_clarification:
+                print("[PROCESS] Clarification required → hỏi lại người dùng.")
+                return router_result.clarification_question
 
 
         # BƯỚC 6 – Search đúng collection (có lọc ngành nếu cần)
         rewritten = router_result.rewritten_question or text
 
+        # ✅ FIX: Thêm context vào câu search để hiểu đúng ngữ cảnh
+        search_query = rewritten
+        if context_str and len(history) > 0:
+            # Chỉ lấy câu hỏi + câu trả lời gần nhất (tránh quá dài)
+            last_context = f"User: {history[-1][0]}\nBot: {history[-1][1]}"
+            search_query = f"{rewritten}\n\nNgữ cảnh: {last_context}"
+            print(f"[CONTEXT-SEARCH] Using context-aware query: {search_query[:100]}...")
     
         q_vec_search = model.encode(
-            normalize(rewritten), normalize_embeddings=True
+            normalize(search_query), normalize_embeddings=True
         )
       
 

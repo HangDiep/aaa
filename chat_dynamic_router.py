@@ -314,22 +314,29 @@ HƯỚNG DẪN QUAN TRỌNG:
 - Tuyệt đối không chọn bảng không có trong danh sách CÁC BẢNG DỮ LIỆU ở trên.
 
 VÍ DỤ:
-- "Gợi ý 3 sách về CNTT" → target_collection: "tra_cu_thng_tin_sch_"
-- "Có sách Python không?" → target_collection: "tra_cu_thng_tin_sch_"
-- "Tìm sách về nghiệp vụ" → target_collection: "tra_cu_thng_tin_sch_"
-- "Ngành CNTT mã là gì?" → target_collection: "ngnh"
-- "Thư viện mở cửa mấy giờ?" → target_collection: "faq_"
+- "Gợi ý 3 sách về CNTT" → target_collection: "tra_cu_thng_tin_sch_", needs_clarification: false
+- "Có sách Python không?" → target_collection: "tra_cu_thng_tin_sch_", needs_clarification: false
+- "Tìm sách về nghiệp vụ" → target_collection: "tra_cu_thng_tin_sch_", needs_clarification: false
+- "sách toán ứng dụng" → target_collection: "tra_cu_thng_tin_sch_", needs_clarification: false
+- "Ngành CNTT mã là gì?" → target_collection: "ngnh", needs_clarification: false
+- "Thư viện mở cửa mấy giờ?" → target_collection: "faq_", needs_clarification: false
+
+QUY TẮC VỀ CLARIFICATION (QUAN TRỌNG):
+- CHỈ hỏi lại (needs_clarification: true) khi câu hỏi THỰC SỰ KHÔNG RÕ (ví dụ: "cho tôi thông tin", "cái đó thế nào")
+- Nếu user đã nói RÕ chủ đề (sách Python, sách toán, ngành CNTT...) → KHÔNG hỏi lại, cứ search luôn
+- Nếu user đã trả lời câu hỏi clarification rồi → TUYỆT ĐỐI KHÔNG hỏi lại nữa
 
 NHIỆM VỤ:
 1. Hiểu người dùng đang hỏi về loại thông tin gì
 2. Quyết định câu hỏi nên tra trong bảng nào
-3. Nếu câu hỏi QUÁ MƠ HỒ → đề xuất hỏi lại 
+3. CHỈ hỏi lại nếu THỰC SỰ cần thiết (câu hỏi quá mơ hồ chung chung)
 4. Viết lại câu hỏi rõ nghĩa hơn
+
 ĐỊNH DẠNG TRẢ LỜI (JSON, KHÔNG GIẢI THÍCH THÊM):
 {{
   "target_collection": "<tên collection hoặc null nếu GLOBAL>",
-  "needs_clarification": true/false,
-  "clarification_question": "<câu hỏi cần hỏi lại nếu needs_clarification=true>",
+  "needs_clarification": false,
+  "clarification_question": null,
   "rewritten_question": "<phiên bản câu hỏi rõ nghĩa hơn>",
   "confidence": 0.0-1.0
 }}
