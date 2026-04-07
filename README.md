@@ -87,4 +87,3 @@ Thực hiện theo đúng thứ tự sau để dữ liệu được sẵn sàng:
 *   **Tự động Discovery**: Chỉ cần bạn "Share" một Database mới trên Notion cho Integration, hệ thống sẽ tự phát hiện và tạo bảng tương ứng.
 
 ---
-*Bản quyền © 2025. Phát triển bởi Đội ngũ TTN University.*
